@@ -1,0 +1,33 @@
+<VM>
+  <ID>99</ID>
+  <NAME>unencrypted-vm</NAME>
+  <STATE>3</STATE>
+  <LCM_STATE>3</LCM_STATE>
+  <STIME>1709100000</STIME>
+  <ETIME>0</ETIME>
+  <UID>1</UID>
+  <GID>1</GID>
+  <UNAME>user1</UNAME>
+  <GNAME>users</GNAME>
+  <TEMPLATE>
+    <CPU>1</CPU>
+    <MEMORY>2048</MEMORY>
+    <DISK>
+      <DISK_ID>0</DISK_ID>
+      <IMAGE>CentOS-9</IMAGE>
+      <IMAGE_ID>8</IMAGE_ID>
+      <SIZE>20480</SIZE>
+      <DRIVER>qcow2</DRIVER>
+    </DISK>
+    <NIC>
+      <NIC_ID>0</NIC_ID>
+      <IP>192.168.1.50</IP>
+      <NETWORK>internal-net</NETWORK>
+      <NETWORK_ID>3</NETWORK_ID>
+      <MAC>02:00:c0:a8:01:32</MAC>
+    </NIC>
+    <CONTEXT>
+      <NETWORK>YES</NETWORK>
+    </CONTEXT>
+  </TEMPLATE>
+</VM>

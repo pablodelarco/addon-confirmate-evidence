@@ -1,0 +1,8 @@
+NAME      = "hook-clouditor-image-ready"
+TYPE      = state
+COMMAND   = "clouditor_image_evidence.rb"
+ARGUMENTS = "$TEMPLATE"
+ARGUMENTS_STDIN = "YES"
+ON        = CUSTOM
+RESOURCE  = IMAGE
+STATE     = READY

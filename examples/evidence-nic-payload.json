@@ -1,0 +1,23 @@
+{
+  "evidence": {
+    "id": "550e8400-e29b-41d4-a716-446655440002",
+    "timestamp": "2026-03-10T09:00:00Z",
+    "cloudServiceId": "a1b2c3d4-0000-0000-0000-000000000001",
+    "toolId": "opennebula-addon-clouditor-evidence",
+    "resource": {
+      "networkInterface": {
+        "id": "one-nic-42-0",
+        "name": "private-net/nic0",
+        "ip": [
+          "10.0.0.100"
+        ],
+        "accessRestriction": {
+          "securityGroups": [
+            "one-sg-0",
+            "one-sg-1"
+          ]
+        }
+      }
+    }
+  }
+}

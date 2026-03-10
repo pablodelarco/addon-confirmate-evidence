@@ -1,0 +1,30 @@
+<IMAGE>
+  <ID>5</ID>
+  <NAME>Ubuntu-22.04</NAME>
+  <UID>0</UID>
+  <GID>0</GID>
+  <UNAME>oneadmin</UNAME>
+  <GNAME>oneadmin</GNAME>
+  <TYPE>0</TYPE>
+  <STATE>1</STATE>
+  <REGTIME>1708900000</REGTIME>
+  <SIZE>10240</SIZE>
+  <PERSISTENT>0</PERSISTENT>
+  <SOURCE>/var/lib/one/datastores/1/5</SOURCE>
+  <DRIVER>qcow2</DRIVER>
+  <FORMAT>qcow2</FORMAT>
+  <PERMISSIONS>
+    <OWNER_U>1</OWNER_U>
+    <OWNER_M>1</OWNER_M>
+    <OWNER_A>0</OWNER_A>
+    <GROUP_U>1</GROUP_U>
+    <GROUP_M>0</GROUP_M>
+    <GROUP_A>0</GROUP_A>
+    <OTHER_U>0</OTHER_U>
+    <OTHER_M>0</OTHER_M>
+    <OTHER_A>0</OTHER_A>
+  </PERMISSIONS>
+  <TEMPLATE>
+    <DESCRIPTION>Ubuntu 22.04 LTS base image</DESCRIPTION>
+  </TEMPLATE>
+</IMAGE>

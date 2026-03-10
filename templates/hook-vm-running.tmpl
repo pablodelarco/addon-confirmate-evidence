@@ -1,0 +1,9 @@
+NAME      = "hook-clouditor-vm-running"
+TYPE      = state
+COMMAND   = "clouditor_vm_evidence.rb"
+ARGUMENTS = "$TEMPLATE"
+ARGUMENTS_STDIN = "YES"
+ON        = CUSTOM
+RESOURCE  = VM
+STATE     = ACTIVE
+LCM_STATE = RUNNING

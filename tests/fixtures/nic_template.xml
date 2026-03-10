@@ -1,0 +1,25 @@
+<VM>
+  <ID>55</ID>
+  <NAME>nic-test-vm</NAME>
+  <STATE>3</STATE>
+  <LCM_STATE>3</LCM_STATE>
+  <STIME>1709050000</STIME>
+  <TEMPLATE>
+    <CPU>1</CPU>
+    <MEMORY>1024</MEMORY>
+    <DISK>
+      <DISK_ID>0</DISK_ID>
+      <IMAGE>minimal</IMAGE>
+      <IMAGE_ID>1</IMAGE_ID>
+      <SIZE>5120</SIZE>
+    </DISK>
+    <NIC>
+      <NIC_ID>0</NIC_ID>
+      <IP>10.0.1.10</IP>
+      <NETWORK>mgmt-net</NETWORK>
+      <NETWORK_ID>5</NETWORK_ID>
+      <MAC>02:00:0a:00:01:0a</MAC>
+      <SECURITY_GROUPS>0</SECURITY_GROUPS>
+    </NIC>
+  </TEMPLATE>
+</VM>
