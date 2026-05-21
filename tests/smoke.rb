@@ -7,23 +7,35 @@
 # orchestrator accepts the payload.
 #
 # Usage:
-#   1. Start Confirmate orchestrator (in another terminal):
+#   1. Start the Confirmate all-in-one server:
 #        cd /path/to/confirmate/core
-#        go run ./cmd/orchestrator -- --db-in-memory \
-#                                     --create-default-target-of-evaluation
-#      The orchestrator listens on http://localhost:8080 by default.
+#        go build -o bin/confirmate ./cmd/confirmate
+#        ./bin/confirmate --db-in-memory --create-default-target-of-evaluation
+#                         [--auth-enabled --oauth2-embedded --oauth2-key-save-on-create]
+#      Listens on http://localhost:8080 by default. With
+#      --create-default-target-of-evaluation, the default ToE UUID is
+#      00000000-0000-0000-0000-000000000000.
 #
-#   2. Discover the default target_of_evaluation_id:
-#        curl -s http://localhost:8080/v1/orchestrator/targets_of_evaluation \
-#          | ruby -rjson -e 'puts JSON.parse($stdin.read).dig("targets_of_evaluation", 0, "id")'
+#   2. Run the smoke test:
+#      Auth off (simplest):
+#        CONFIRMATE_URL=http://localhost:8080 ruby tests/smoke.rb
 #
-#   3. Run the smoke test:
-#        CONFIRMATE_URL=http://localhost:8080 \
-#        TOE_ID=<uuid-from-step-2>           \
+#      Auth on (OAuth2 client_credentials):
+#        CONFIRMATE_URL=http://localhost:8080  \
+#        CONFIRMATE_AUTH=on                    \
+#        CONFIRMATE_CLIENT_ID=confirmate       \
+#        CONFIRMATE_CLIENT_SECRET=confirmate   \
 #          ruby tests/smoke.rb
 #
-# If CONFIRMATE_URL is not set or the server is unreachable, the test skips
-# rather than fails — making it CI-safe.
+# Env vars:
+#   CONFIRMATE_URL          — required-ish; default http://localhost:8080
+#   TOE_ID                  — default 00000000-0000-0000-0000-000000000000
+#   CONFIRMATE_AUTH         — "on" / "true" / "1" to enable bearer auth
+#   CONFIRMATE_CLIENT_ID    — default "confirmate"
+#   CONFIRMATE_CLIENT_SECRET — default "confirmate"
+#
+# If CONFIRMATE_URL is unreachable, the test skips rather than fails —
+# making it CI-safe.
 # =============================================================================
 
 require 'logger'
@@ -36,7 +48,10 @@ require 'ontology_mapper'
 require 'confirmate_client'
 
 CONFIRMATE_URL = ENV['CONFIRMATE_URL'] || 'http://localhost:8080'
-TOE_ID         = ENV['TOE_ID']         || '00000000-0000-0000-0000-000000000001'
+TOE_ID         = ENV['TOE_ID']         || '00000000-0000-0000-0000-000000000000'
+AUTH_ENABLED   = %w[1 true yes on].include?((ENV['CONFIRMATE_AUTH'] || '').downcase)
+CLIENT_ID      = ENV['CONFIRMATE_CLIENT_ID']     || 'confirmate'
+CLIENT_SECRET  = ENV['CONFIRMATE_CLIENT_SECRET'] || 'confirmate'
 
 logger = Logger.new($stdout)
 logger.level = Logger::INFO
@@ -57,7 +72,12 @@ end
 config = {
   'confirmate' => {
     'endpoint' => CONFIRMATE_URL,
-    'auth' => { 'enabled' => false }
+    'auth' => {
+      'enabled'       => AUTH_ENABLED,
+      'token_url'     => "#{CONFIRMATE_URL}/v1/auth/token",
+      'client_id'     => CLIENT_ID,
+      'client_secret' => CLIENT_SECRET
+    }
   },
   'evidence' => {
     'tool_id' => 'opennebula-addon-confirmate-evidence-smoketest',
