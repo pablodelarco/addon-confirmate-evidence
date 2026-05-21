@@ -1,166 +1,196 @@
-# addon-clouditor-evidence
+# addon-confirmate-evidence
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![OpenNebula](https://img.shields.io/badge/OpenNebula-%E2%89%A5%206.x-brightgreen)](https://opennebula.io)
 [![EMERALD](https://img.shields.io/badge/EU-EMERALD%20Horizon%20Europe-yellow)](https://emerald-he.eu)
 
-**Evidence Collection Gateway** for integrating [OpenNebula](https://opennebula.io) with [Clouditor](https://github.com/clouditor/clouditor) (Fraunhofer AISEC) toward continuous **EUCS** (EU Cybersecurity Certification Scheme for Cloud Services) certification.
+**Evidence Collection Gateway** for integrating [OpenNebula](https://opennebula.io)
+with [Confirmate](https://github.com/confirmate/confirmate) (Fraunhofer AISEC)
+toward continuous **EUCS** (EU Cybersecurity Certification Scheme for Cloud
+Services) certification.
 
-Part of the **EMERALD** project (Evidence Management for Continuous Certification as a Service in the Cloud), **Pilot 4**: hybrid cloud-edge certification for the financial sector.
+> Confirmate is the successor to Clouditor. The addon's repository keeps the
+> historical name `addon-clouditor-evidence` for the time being; everything
+> inside (hooks, library, config) talks to Confirmate. See
+> [MIGRATION.md](MIGRATION.md) for the full Clouditor → Confirmate gap
+> analysis and ordered checklist used for this migration.
+
+Part of the **EMERALD** project (Evidence Management for Continuous
+Certification as a Service in the Cloud), **Pilot 4**: hybrid cloud-edge
+certification for the financial sector.
 
 ---
 
 ## Overview
 
-OpenNebula manages cloud infrastructure (VMs, networks, images, security groups). Clouditor is a tool by Fraunhofer AISEC that evaluates whether cloud resources comply with security requirements (EUCS, BSI C5, CSA CCM).
+OpenNebula manages cloud infrastructure (VMs, networks, images, security
+groups). Confirmate is a tool by Fraunhofer AISEC that evaluates whether
+cloud resources comply with security requirements (EUCS, BSI C5, CSA CCM).
 
-**The problem**: Clouditor natively supports AWS, Azure, and GCP for resource discovery. It does not natively support OpenNebula.
+**The problem**: Confirmate has no native OpenNebula discovery.
 
-**The solution**: This addon uses OpenNebula's **Hook subsystem** to detect state changes in cloud resources and push **evidence** to Clouditor's **Evidence Store** via its REST API. Clouditor then evaluates this evidence against EUCS controls and produces compliance assessment results.
+**The solution**: This addon uses OpenNebula's **Hook subsystem** to detect
+state changes in cloud resources, maps them to the `confirmate.ontology.v1`
+data model, and POSTs evidence to Confirmate's **Evidence Store** at
+`POST /v1/evidence_store/evidence`. Confirmate then evaluates the evidence
+against EUCS controls and surfaces results in the EMERALD UI.
 
 ```
-                         addon-clouditor-evidence
-                         ========================
+                         addon-confirmate-evidence
+                         =========================
 
-  OpenNebula                                              Clouditor
-  ==========                                              =========
+  OpenNebula                                              Confirmate
+  ==========                                              ==========
 
   VM Created ----+
   VM Running ----|     +-------------------+
   VM Deleted ----|---->| Hook Scripts      |     +------------------+
   NIC Attached --|     |  - Decode XML     |     | Evidence Store   |
-  NIC Detached --|     |  - Map ontology   |---->|   (REST API)     |
+  NIC Detached --|     |  - Map ontology   |---->|   (REST)         |
   Image Ready ---|     |  - POST evidence  |     +--------+---------+
   Net Created ---+     +-------------------+              |
                                                           v
                                                  +------------------+
                                                  | Assessment       |
                                                  | Engine           |
-                                                 |  - Evaluate      |
-                                                 |    metrics       |
-                                                 |  - COMPLIANT /   |
-                                                 |    NON_COMPLIANT |
                                                  +--------+---------+
                                                           |
                                                           v
                                                  +------------------+
                                                  | EMERALD UI       |
-                                                 | Compliance       |
-                                                 | Dashboard        |
                                                  +------------------+
 ```
 
+Each piece of evidence is tagged with a **Target of Evaluation (ToE)** UUID
+that is created (once) in the EMERALD UI; paste that UUID into the addon
+config and every subsequent evidence POST carries it.
+
 ## Prerequisites
 
-- **OpenNebula** >= 6.x (Front-End node)
-- **Clouditor** instance (local or remote), reachable from the ONE Front-End
-- **Ruby** (pre-installed on ONE Front-End)
-- No external gems required (uses Ruby stdlib only)
+- **OpenNebula** ≥ 6.x (Front-End node)
+- A reachable **Confirmate** orchestrator
+- **Ruby** 2.6+ (pre-installed on the ONE Front-End)
+- No external Ruby gems required (stdlib only)
 
-## Quick Start
+## Quick Start (local Confirmate, no auth)
 
-### 1. Set up Clouditor (for testing)
-
-```bash
-cd demo/
-./setup-clouditor-demo.sh
-```
-
-This starts a local Clouditor instance via Docker and configures it for the EMERALD Pilot 4 demo.
-
-### 2. Install the addon
+The simplest path: run Confirmate's orchestrator in memory with auth off,
+which makes evidence submission a plain HTTP POST.
 
 ```bash
+# 1) Start Confirmate orchestrator (in another terminal)
+git clone https://github.com/confirmate/confirmate
+cd confirmate/core
+go run ./cmd/orchestrator -- --db-in-memory \
+                             --create-default-target-of-evaluation
+#  listens on http://localhost:8080  (auth-enabled defaults to false)
+
+# 2) Install this addon
 sudo ./install.sh
+
+# 3) Configure: edit /etc/one/confirmate-evidence.conf and set
+#    target_of_evaluation_id to the UUID from the EMERALD UI (or, for
+#    the default ToE created in step 1, fetch it via:
+#      curl -s http://localhost:8080/v1/orchestrator/targets_of_evaluation
+#    )
+
+# 4) Verify with the smoke test
+CONFIRMATE_URL=http://localhost:8080 \
+TOE_ID=<uuid-from-step-3>            \
+  ruby tests/smoke.rb
 ```
 
-### 3. Configure
+## Production setup (auth on)
 
-Edit `/etc/one/clouditor-evidence.conf`:
+When the orchestrator runs with `--auth-enabled=true`, this addon obtains a
+JWT via the OAuth 2.0 **client_credentials** grant against the orchestrator's
+embedded OAuth server at `/v1/auth/token`. Set in
+`/etc/one/confirmate-evidence.conf`:
 
 ```yaml
-clouditor:
-  endpoint: "http://<clouditor-host>:8082"
+confirmate:
+  endpoint: "http://<orchestrator-host>:8080"
   auth:
-    token_url: "http://<clouditor-host>:8082/v1/auth/token"
-    username: "clouditor"
-    password: "clouditor"
+    enabled: true
+    token_url: "http://<orchestrator-host>:8080/v1/auth/token"
+    client_id: "<your-client-id>"
+    client_secret: "<your-client-secret>"
 
 evidence:
-  tool_id: "opennebula-addon-clouditor-evidence"
-  cloud_service_id: "<your-cloud-service-uuid>"
+  tool_id: "opennebula-addon-confirmate-evidence"
+  target_of_evaluation_id: "<uuid-from-emerald-ui>"
 ```
 
-### 4. Test
-
-Create a VM and check the log:
-
-```bash
-tail -f /var/log/one/clouditor-evidence.log
-```
-
-### 5. Run the demo
-
-```bash
-cd demo/
-./run-demo.sh
-```
-
-Open the Clouditor UI at `http://localhost:3000` (credentials: `clouditor` / `clouditor`).
+Confirmate's defaults for its built-in service client are
+`client_id=confirmate`, `client_secret=confirmate` (see
+`core/server/oauth_server.go:39-40`). Override for any deployment beyond
+local testing.
 
 ## Configuration Reference
 
 | Parameter | Description | Default |
 |---|---|---|
-| `clouditor.endpoint` | Clouditor REST API URL | `http://localhost:8082` |
-| `clouditor.auth.token_url` | OAuth2 token endpoint | `http://localhost:8082/v1/auth/token` |
-| `clouditor.auth.username` | Clouditor username | `clouditor` |
-| `clouditor.auth.password` | Clouditor password | `clouditor` |
-| `clouditor.auth.static_token` | Pre-configured bearer token (bypasses OAuth2) | _(empty)_ |
-| `evidence.tool_id` | Tool identifier in evidence payloads | `opennebula-addon-clouditor-evidence` |
-| `evidence.cloud_service_id` | Target of Evaluation UUID in Clouditor | `00000000-...` |
-| `evidence.default_region` | Geo-location for resources | `eu-south-1` |
+| `confirmate.endpoint` | Confirmate orchestrator REST URL | `http://localhost:8080` |
+| `confirmate.auth.enabled` | Send `Authorization: Bearer …` | `false` |
+| `confirmate.auth.token_url` | OAuth2 token endpoint | `http://localhost:8080/v1/auth/token` |
+| `confirmate.auth.client_id` | OAuth2 client ID | `confirmate` |
+| `confirmate.auth.client_secret` | OAuth2 client secret | `confirmate` |
+| `confirmate.auth.static_token` | Pre-issued bearer token (bypass OAuth) | _(empty)_ |
+| `evidence.tool_id` | Tool identifier in every evidence | `opennebula-addon-confirmate-evidence` |
+| `evidence.target_of_evaluation_id` | ToE UUID created in EMERALD UI | _(placeholder)_ |
+| `evidence.default_region` | Geo-location label | `eu-south-1` |
 | `logging.level` | Log verbosity: debug, info, warn, error | `info` |
-| `logging.file` | Log file path | `/var/log/one/clouditor-evidence.log` |
+| `logging.file` | Log file path | `/var/log/one/confirmate-evidence.log` |
+
+The previous `clouditor.*` and `evidence.cloud_service_id` keys are no
+longer used; `cloud_service_id` is still read as a transient back-compat
+fallback (mapped to `target_of_evaluation_id`) but will be removed in a
+future release.
 
 ## Hooks Registered
 
 | Hook | Type | Trigger | Evidence Type |
 |---|---|---|---|
-| `hook-clouditor-vm-running` | State | VM reaches RUNNING | VirtualMachine |
-| `hook-clouditor-vm-poweroff` | State | VM reaches POWEROFF | VirtualMachine |
-| `hook-clouditor-vm-done` | State | VM is terminated | VirtualMachine |
-| `hook-clouditor-nic-attach` | API | `one.vm.attachnic` | NetworkInterface + VM |
-| `hook-clouditor-nic-detach` | API | `one.vm.detachnic` | NetworkInterface + VM |
-| `hook-clouditor-image-ready` | API | Image reaches READY | VMImage |
-| `hook-clouditor-net-create` | API | `one.vn.allocate` | VirtualNetwork |
+| `hook-confirmate-vm-running` | State | VM reaches RUNNING | VirtualMachine |
+| `hook-confirmate-vm-poweroff` | State | VM reaches POWEROFF | VirtualMachine |
+| `hook-confirmate-vm-done` | State | VM is terminated | VirtualMachine |
+| `hook-confirmate-nic-attach` | API | `one.vm.attachnic` | NetworkInterface + VM |
+| `hook-confirmate-nic-detach` | API | `one.vm.detachnic` | NetworkInterface + VM |
+| `hook-confirmate-image-ready` | State | Image reaches READY | VMImage |
+| `hook-confirmate-net-create` | API | `one.vn.allocate` | VirtualNetwork |
 
-## Resource Mapping Reference
+## Resource Mapping (`confirmate.ontology.v1`)
 
-### OpenNebula VM -> Clouditor VirtualMachine
+### OpenNebula VM → VirtualMachine
 
-| ONE XML Field | Ontology Field | Description |
+| ONE XML Field | Ontology Field | Notes |
 |---|---|---|
 | `<ID>` | `id` | `"one-vm-{id}"` |
-| `<NAME>` | `name` | VM name |
-| `<STIME>` | `creationTime` | Unix epoch -> RFC 3339 |
-| `<DISK><ENCRYPT>` | `atRestEncryption.managedKeyEncryption.enabled` | Disk encryption status |
-| `<DISK><CIPHER>` | `atRestEncryption.managedKeyEncryption.algorithm` | Encryption algorithm |
-| `<NIC><EXTERNAL>` | `publicIp` | Whether VM has public IP |
-| `<NIC>` (all) | `networkInterfaces` | List of NIC resource IDs |
-| `<DISK>` (all) | `blockStorage` | List of disk resource IDs |
-| `<MONITORING>` | `bootLogging.enabled`, `osLogging.enabled` | Logging status heuristic |
+| `<NAME>` | `name` | |
+| `<STIME>` | `creationTime` | Unix epoch → RFC 3339 |
+| `<NIC>` (all) | `networkInterfaceIds` | IDs only; full NIC data is its own evidence |
+| `<DISK>` (all) | `blockStorageIds` | IDs only |
+| `<NIC><EXTERNAL>` or non-RFC1918 IP | `internetAccessibleEndpoint` | bool |
+| `<MONITORING>` | `bootLogging.enabled`, `osLogging.enabled` | heuristic |
+| — | `automaticUpdates.enabled` | always `false` (no ONE source) |
+| `<DISK><ENCRYPT>` / `<CIPHER>` | _(in `raw` XML only)_ | See open question in [MIGRATION.md](MIGRATION.md) §5 OQ-2 |
 
-### OpenNebula NIC -> Clouditor NetworkInterface
+### OpenNebula NIC → NetworkInterface
 
 | ONE XML Field | Ontology Field |
 |---|---|
 | `<NIC_ID>` | `id` (`"one-nic-{vm_id}-{nic_id}"`) |
 | `<NETWORK>` | `name` |
-| `<IP>` | `ip` |
-| `<SECURITY_GROUPS>` | `accessRestriction.securityGroups` |
+| `<EXTERNAL>` or non-RFC1918 IP | `internetAccessibleEndpoint` |
+| `<IP>` | `labels.ip` |
+| `<NETWORK>` | `labels.network` |
+| `<SECURITY_GROUPS>` | `labels.securityGroupIds` |
 
-### OpenNebula Image -> Clouditor VMImage
+`confirmate.ontology.v1.NetworkInterface` does not have first-class fields
+for IP address or security-group membership; both are carried in `labels`
+(a `map<string,string>`) so they remain queryable by Confirmate policies.
+
+### OpenNebula Image → VMImage
 
 | ONE XML Field | Ontology Field |
 |---|---|
@@ -169,97 +199,94 @@ Open the Clouditor UI at `http://localhost:3000` (credentials: `clouditor` / `cl
 | `<REGTIME>` | `creationTime` |
 | `<PERMISSIONS><OTHER_U>` | `publicAccess` |
 
-## EUCS Controls Covered
+## EUCS Controls
 
-This addon provides evidence for the following CIS-based controls from the EMERALD Pilot 4 (CaixaBank) audit scope:
+This addon supplies evidence for the following CIS-based controls
+defined in the EMERALD Pilot 4 (CaixaBank) audit scope. Note that the
+encryption-related controls (CIS 4.3 / 4.4) currently rely on the
+attached `raw` XML rather than a typed at-rest-encryption ontology field —
+see [MIGRATION.md](MIGRATION.md) §5 OQ-2 for the pending design decision.
 
 | Control | Description | Evidence Source |
 |---|---|---|
-| **CIS 4.3** | VM Disk Encryption with CSEK | `DISK/ENCRYPT` + `DISK/CIPHER` |
-| **CIS 4.4** | No Public IP on Compute Instances | `NIC/EXTERNAL` + IP range check |
-| **CIS 8.3** | Storage Not Publicly Accessible | `IMAGE/PERMISSIONS/OTHER_U` |
-| **CIS 8.5** | Cloud Asset Inventory Enabled | Continuous evidence collection |
-| **CIS 8.6** | Cloud Audit Logging Configured | `MONITORING` presence |
-| **CIS 9.2** | SSH Access Restricted | Security Group port 22 rules |
-| **CIS 9.3** | RDP Access Restricted | Security Group port 3389 rules |
+| CIS 4.3 | VM Disk Encryption with CSEK | `DISK/ENCRYPT` + `DISK/CIPHER` (raw) |
+| CIS 4.4 | No Public IP on Compute Instances | `NIC/EXTERNAL`, IP-range check → `internetAccessibleEndpoint` |
+| CIS 8.3 | Storage Not Publicly Accessible | `IMAGE/PERMISSIONS/OTHER_U` |
+| CIS 8.5 | Cloud Asset Inventory Enabled | Continuous evidence collection |
+| CIS 8.6 | Cloud Audit Logging Configured | `MONITORING` presence |
+| CIS 9.2 | SSH Access Restricted | `NIC/SECURITY_GROUPS` |
+| CIS 9.3 | RDP Access Restricted | `NIC/SECURITY_GROUPS` |
 
-## Running Tests
+## Running tests
 
 ```bash
-cd tests/
-ruby test_ontology_mapper.rb
-ruby test_token_manager.rb
+ruby tests/test_ontology_mapper.rb   # unit tests for the XML → JSON mapping
+ruby tests/test_token_manager.rb     # unit tests for the OAuth2 flow
+ruby tests/smoke.rb                  # end-to-end POST to a live Confirmate
 ```
+
+The smoke test skips cleanly if no orchestrator is reachable at
+`CONFIRMATE_URL`.
 
 ## Troubleshooting
 
-### Token expired / 401 Unauthorized
-The addon automatically refreshes OAuth2 tokens. If using a `static_token`, ensure it hasn't expired. Regenerate with:
-```bash
-curl -X POST http://<clouditor>:8082/v1/auth/token \
-  -H "Content-Type: application/json" \
-  -d '{"username":"clouditor","password":"clouditor"}'
-```
+### 401 Unauthorized
+Either `confirmate.auth.enabled` is on but the credentials are wrong, or
+the orchestrator has rotated its signing keys (token cache invalid). The
+addon refreshes its token automatically on 401 — repeated 401s indicate a
+credential / JWKS mismatch.
 
 ### Hook not triggering
-1. Check hook is registered: `onehook list`
-2. Check hook status: `onehook show <id>`
-3. Check hook execution log: `onehook log <id>`
-4. Verify hook script is executable: `ls -la /var/lib/one/remotes/hooks/clouditor_*.rb`
+1. `onehook list` — hook is registered?
+2. `onehook show <id>` — state OK?
+3. `onehook log <id>` — script ran?
+4. `ls -la /var/lib/one/remotes/hooks/confirmate_*.rb` — scripts executable?
 
-### Evidence not appearing in Clouditor
-1. Check the addon log: `tail -f /var/log/one/clouditor-evidence.log`
-2. Verify network connectivity: `curl -s http://<clouditor>:8082/v1/orchestrator/cloud_services`
-3. Ensure `cloud_service_id` in config matches the ID in Clouditor
-
-### Clouditor not evaluating evidence
-Evidence must match a resource type that has active metrics. Check available metrics:
-```bash
-curl -H "Authorization: Bearer $TOKEN" http://<clouditor>:8082/v1/orchestrator/metrics
-```
+### Evidence not appearing
+1. `tail -f /var/log/one/confirmate-evidence.log`
+2. `curl -s http://<orchestrator>:8080/v1/evidence_store/evidences | head` —
+   does Confirmate see anything for this tool?
+3. Confirm `target_of_evaluation_id` matches a real ToE in Confirmate.
 
 ## Project Structure
 
 ```
-addon-clouditor-evidence/
+addon-clouditor-evidence/  (historical name; everything inside is Confirmate)
 ├── etc/
-│   └── clouditor-evidence.conf      # Configuration (YAML)
+│   └── confirmate-evidence.conf      # Configuration (YAML)
 ├── lib/
-│   ├── clouditor_client.rb          # HTTP client for Evidence Store
-│   ├── ontology_mapper.rb           # ONE XML -> Clouditor ontology
-│   └── token_manager.rb            # OAuth2 token management
+│   ├── confirmate_client.rb          # HTTP client for Evidence Store
+│   ├── ontology_mapper.rb            # ONE XML → confirmate.ontology.v1
+│   └── token_manager.rb              # OAuth2 client_credentials
 ├── hooks/
-│   ├── clouditor_vm_evidence.rb     # VM state change hook
-│   ├── clouditor_nic_evidence.rb    # NIC attach/detach hook
-│   ├── clouditor_image_evidence.rb  # Image state hook
-│   └── clouditor_net_evidence.rb    # Network creation hook
-├── templates/                       # OpenNebula hook registration templates
-├── demo/                            # Demo environment (Docker + scripts)
-├── tests/                           # Unit tests (minitest)
-├── examples/                        # Sample evidence JSON payloads
-├── install.sh                       # Automated installer
-└── uninstall.sh                     # Clean uninstaller
+│   ├── confirmate_vm_evidence.rb     # VM state change hook
+│   ├── confirmate_nic_evidence.rb    # NIC attach/detach hook
+│   ├── confirmate_image_evidence.rb  # Image state hook
+│   └── confirmate_net_evidence.rb    # Network creation hook
+├── templates/                        # OpenNebula hook registration templates
+├── demo/                             # (historical) Clouditor-era demo — see CHANGELOG
+├── tests/                            # Unit tests + smoke test
+├── examples/                         # Sample evidence JSON payloads
+├── install.sh / uninstall.sh         # Lifecycle scripts
+└── MIGRATION.md                      # Clouditor → Confirmate gap + plan
 ```
 
-## Contributing
-
-Contributions are welcome. Please:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Make your changes with tests
-4. Submit a Pull Request
+The `demo/` directory still contains the Clouditor-era Docker setup. It has
+not been migrated yet — use the Quick Start above against an upstream
+Confirmate checkout instead.
 
 ## Acknowledgments
 
 <img src="https://emerald-he.eu/wp-content/uploads/2023/09/eu-flag.png" alt="EU Flag" width="50" align="left" style="margin-right: 10px;">
 
-This project has received funding from the European Union's Horizon Europe research and innovation programme under grant agreement No. **101120688** ([EMERALD](https://emerald-he.eu)).
+This project has received funding from the European Union's Horizon Europe
+research and innovation programme under grant agreement No. **101120688**
+([EMERALD](https://emerald-he.eu)).
 
 **Partners:**
-- [Fraunhofer AISEC](https://www.aisec.fraunhofer.de/) - Clouditor development and EUCS expertise
-- [OpenNebula Systems](https://opennebula.io) - Cloud management platform and addon development
-- [CaixaBank](https://www.caixabank.com) - Pilot 4 validation (financial sector use case)
+- [Fraunhofer AISEC](https://www.aisec.fraunhofer.de/) — Confirmate development and EUCS expertise
+- [OpenNebula Systems](https://opennebula.io) — Cloud management platform and addon development
+- [CaixaBank](https://www.caixabank.com) — Pilot 4 validation (financial sector)
 
 ## License
 
