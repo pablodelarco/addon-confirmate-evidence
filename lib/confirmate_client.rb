@@ -1,10 +1,10 @@
 # =============================================================================
-# ClouditorClient - HTTP client for the Clouditor Evidence Store API
+# ConfirmateClient - HTTP client for the Confirmate Evidence Store API
 # =============================================================================
-# Sends evidence payloads to the Clouditor Evidence Store via REST API.
+# Sends evidence payloads to the Confirmate Evidence Store via REST API.
 # Handles authentication, retries with exponential backoff, and logging.
 #
-# Part of addon-clouditor-evidence (EMERALD project)
+# Part of addon-confirmate-evidence (EMERALD project)
 # =============================================================================
 
 require 'net/http'
@@ -16,18 +16,18 @@ require 'yaml'
 $LOAD_PATH.unshift(File.dirname(__FILE__)) unless $LOAD_PATH.include?(File.dirname(__FILE__))
 require 'token_manager'
 
-# HTTP client for posting evidence to the Clouditor Evidence Store.
+# HTTP client for posting evidence to the Confirmate Evidence Store.
 #
 # Uses TokenManager for automatic bearer token management and implements
 # retry logic with exponential backoff for transient failures.
-class ClouditorClient
+class ConfirmateClient
   # Maximum number of retry attempts for failed requests
   MAX_RETRIES = 3
 
   # Base delay in seconds for exponential backoff
   BASE_DELAY = 1
 
-  # Evidence Store REST endpoint path
+  # Evidence Store REST endpoint path (unchanged between Clouditor and Confirmate)
   EVIDENCE_PATH = '/v1/evidence_store/evidence'
 
   # @param config [Hash] parsed YAML configuration
@@ -35,7 +35,7 @@ class ClouditorClient
   def initialize(config, logger = nil)
     @config = config
     @logger = logger || create_logger(config)
-    @endpoint = config.dig('clouditor', 'endpoint') || 'http://localhost:8082'
+    @endpoint = config.dig('confirmate', 'endpoint') || 'http://localhost:8080'
     @token_manager = TokenManager.new(config, @logger)
   end
 
@@ -137,7 +137,7 @@ class ClouditorClient
                    end
 
     logger.formatter = proc do |severity, datetime, _progname, msg|
-      "[#{datetime.strftime('%Y-%m-%d %H:%M:%S')}] #{severity} clouditor-evidence: #{msg}\n"
+      "[#{datetime.strftime('%Y-%m-%d %H:%M:%S')}] #{severity} confirmate-evidence: #{msg}\n"
     end
 
     logger

@@ -1,17 +1,17 @@
 #!/usr/bin/ruby
 # =============================================================================
-# clouditor_vm_evidence.rb - VM state change evidence hook
+# confirmate_vm_evidence.rb - VM state change evidence hook
 # =============================================================================
 # OpenNebula hook script triggered on VM state changes (RUNNING, POWEROFF, DONE).
-# Extracts VM data from the hook template, maps it to Clouditor's ontology,
+# Extracts VM data from the hook template, maps it to Confirmate's ontology,
 # and sends evidence to the Evidence Store.
 #
 # Usage (via hook template):
-#   COMMAND = "clouditor_vm_evidence.rb"
+#   COMMAND = "confirmate_vm_evidence.rb"
 #   ARGUMENTS = "$TEMPLATE"
 #   ARGUMENTS_STDIN = "YES"
 #
-# Part of addon-clouditor-evidence (EMERALD project)
+# Part of addon-confirmate-evidence (EMERALD project)
 # =============================================================================
 
 ONE_LOCATION = ENV['ONE_LOCATION']
@@ -20,12 +20,12 @@ if !ONE_LOCATION
   RUBY_LIB_LOCATION = '/usr/lib/one/ruby'
   GEMS_LOCATION     = '/usr/share/one/gems'
   ETC_LOCATION      = '/etc/one'
-  HOOKS_LIB         = '/var/lib/one/remotes/hooks/clouditor-evidence/lib'
+  HOOKS_LIB         = '/var/lib/one/remotes/hooks/confirmate-evidence/lib'
 else
   RUBY_LIB_LOCATION = ONE_LOCATION + '/lib/ruby'
   GEMS_LOCATION     = ONE_LOCATION + '/share/gems'
   ETC_LOCATION      = ONE_LOCATION + '/etc'
-  HOOKS_LIB         = ONE_LOCATION + '/var/remotes/hooks/clouditor-evidence/lib'
+  HOOKS_LIB         = ONE_LOCATION + '/var/remotes/hooks/confirmate-evidence/lib'
 end
 
 if File.directory?(GEMS_LOCATION)
@@ -40,7 +40,7 @@ $LOAD_PATH << HOOKS_LIB
 require 'base64'
 require 'yaml'
 require 'logger'
-require 'clouditor_client'
+require 'confirmate_client'
 require 'ontology_mapper'
 
 begin
@@ -52,7 +52,7 @@ begin
   end
 
   if raw_input.nil? || raw_input.empty?
-    $stderr.puts 'clouditor_vm_evidence: no template data received'
+    $stderr.puts 'confirmate_vm_evidence: no template data received'
     exit 1
   end
 
@@ -60,11 +60,11 @@ begin
   template_xml = Base64.decode64(raw_input)
 
   # Load configuration
-  config_path = File.join(ETC_LOCATION, 'clouditor-evidence.conf')
+  config_path = File.join(ETC_LOCATION, 'confirmate-evidence.conf')
   config = YAML.load_file(config_path)
 
   # Set up logging
-  log_file = config.dig('logging', 'file') || '/var/log/one/clouditor-evidence.log'
+  log_file = config.dig('logging', 'file') || '/var/log/one/confirmate-evidence.log'
   log_level = config.dig('logging', 'level') || 'info'
   logger = Logger.new(log_file, 10, 1_048_576) rescue Logger.new($stderr)
   logger.level = case log_level.downcase
@@ -77,15 +77,15 @@ begin
 
   logger.info('VM evidence hook triggered')
 
-  # Map VM XML to Clouditor ontology
+  # Map VM XML to Confirmate ontology
   mapper = OntologyMapper.new(config)
   vm_evidence = mapper.map_vm(template_xml)
 
   # Also extract and send NIC evidence for each network interface
   nic_evidences = mapper.map_nics(template_xml)
 
-  # Send VM evidence to Clouditor
-  client = ClouditorClient.new(config, logger)
+  # Send VM evidence to Confirmate
+  client = ConfirmateClient.new(config, logger)
   client.store_evidence(vm_evidence)
 
   # Send NIC evidence for each interface
@@ -100,11 +100,11 @@ begin
   logger.info('VM evidence hook completed successfully')
 
 rescue StandardError => e
-  msg = "clouditor_vm_evidence: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}"
+  msg = "confirmate_vm_evidence: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}"
   $stderr.puts msg
   # Log to file if possible
   begin
-    File.open('/var/log/one/clouditor-evidence.log', 'a') { |f| f.puts "[#{Time.now}] ERROR #{msg}" }
+    File.open('/var/log/one/confirmate-evidence.log', 'a') { |f| f.puts "[#{Time.now}] ERROR #{msg}" }
   rescue StandardError
     # Silent fallback - never crash the hook
   end

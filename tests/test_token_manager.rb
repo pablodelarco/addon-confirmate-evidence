@@ -17,7 +17,7 @@ class TestTokenManager < Minitest::Test
 
   def test_static_token
     config = {
-      'clouditor' => {
+      'confirmate' => {
         'auth' => {
           'static_token' => 'test-static-token-12345'
         }
@@ -30,7 +30,7 @@ class TestTokenManager < Minitest::Test
 
   def test_static_token_preferred_over_dynamic
     config = {
-      'clouditor' => {
+      'confirmate' => {
         'auth' => {
           'token_url' => 'http://localhost:8082/v1/auth/token',
           'username' => 'clouditor',
@@ -47,7 +47,7 @@ class TestTokenManager < Minitest::Test
 
   def test_missing_config_raises
     config = {
-      'clouditor' => {
+      'confirmate' => {
         'auth' => {}
       }
     }
@@ -58,7 +58,7 @@ class TestTokenManager < Minitest::Test
 
   def test_empty_static_token_triggers_dynamic
     config = {
-      'clouditor' => {
+      'confirmate' => {
         'auth' => {
           'static_token' => '',
           'token_url' => 'http://localhost:99999/v1/auth/token',
@@ -83,7 +83,7 @@ class TestTokenManager < Minitest::Test
     jwt = "#{header}.#{payload}.#{sig}"
 
     config = {
-      'clouditor' => {
+      'confirmate' => {
         'auth' => {
           'static_token' => jwt
         }

@@ -1,11 +1,11 @@
 #!/usr/bin/ruby
 # =============================================================================
-# clouditor_net_evidence.rb - Virtual Network creation evidence hook
+# confirmate_net_evidence.rb - Virtual Network creation evidence hook
 # =============================================================================
 # OpenNebula API hook triggered on one.vn.allocate calls.
-# Sends VirtualNetwork evidence to Clouditor's Evidence Store.
+# Sends VirtualNetwork evidence to Confirmate's Evidence Store.
 #
-# Part of addon-clouditor-evidence (EMERALD project)
+# Part of addon-confirmate-evidence (EMERALD project)
 # =============================================================================
 
 ONE_LOCATION = ENV['ONE_LOCATION']
@@ -14,12 +14,12 @@ if !ONE_LOCATION
   RUBY_LIB_LOCATION = '/usr/lib/one/ruby'
   GEMS_LOCATION     = '/usr/share/one/gems'
   ETC_LOCATION      = '/etc/one'
-  HOOKS_LIB         = '/var/lib/one/remotes/hooks/clouditor-evidence/lib'
+  HOOKS_LIB         = '/var/lib/one/remotes/hooks/confirmate-evidence/lib'
 else
   RUBY_LIB_LOCATION = ONE_LOCATION + '/lib/ruby'
   GEMS_LOCATION     = ONE_LOCATION + '/share/gems'
   ETC_LOCATION      = ONE_LOCATION + '/etc'
-  HOOKS_LIB         = ONE_LOCATION + '/var/remotes/hooks/clouditor-evidence/lib'
+  HOOKS_LIB         = ONE_LOCATION + '/var/remotes/hooks/confirmate-evidence/lib'
 end
 
 if File.directory?(GEMS_LOCATION)
@@ -35,7 +35,7 @@ require 'base64'
 require 'yaml'
 require 'logger'
 require 'rexml/document'
-require 'clouditor_client'
+require 'confirmate_client'
 require 'ontology_mapper'
 
 begin
@@ -47,18 +47,18 @@ begin
   end
 
   if raw_input.nil? || raw_input.empty?
-    $stderr.puts 'clouditor_net_evidence: no API data received'
+    $stderr.puts 'confirmate_net_evidence: no API data received'
     exit 1
   end
 
   api_xml = Base64.decode64(raw_input)
 
   # Load configuration
-  config_path = File.join(ETC_LOCATION, 'clouditor-evidence.conf')
+  config_path = File.join(ETC_LOCATION, 'confirmate-evidence.conf')
   config = YAML.load_file(config_path)
 
   # Set up logging
-  log_file = config.dig('logging', 'file') || '/var/log/one/clouditor-evidence.log'
+  log_file = config.dig('logging', 'file') || '/var/log/one/confirmate-evidence.log'
   log_level = config.dig('logging', 'level') || 'info'
   logger = Logger.new(log_file, 10, 1_048_576) rescue Logger.new($stderr)
   logger.level = case log_level.downcase
@@ -113,8 +113,8 @@ begin
       mapper = OntologyMapper.new(config)
       evidence = mapper.map_network(vnet_xml)
 
-      clouditor = ClouditorClient.new(config, logger)
-      clouditor.store_evidence(evidence)
+      client = ConfirmateClient.new(config, logger)
+      client.store_evidence(evidence)
 
     rescue LoadError => e
       logger.warn("OpenNebula Ruby bindings not available: #{e.message}")
@@ -126,10 +126,10 @@ begin
   logger.info('Network evidence hook completed')
 
 rescue StandardError => e
-  msg = "clouditor_net_evidence: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}"
+  msg = "confirmate_net_evidence: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}"
   $stderr.puts msg
   begin
-    File.open('/var/log/one/clouditor-evidence.log', 'a') { |f| f.puts "[#{Time.now}] ERROR #{msg}" }
+    File.open('/var/log/one/confirmate-evidence.log', 'a') { |f| f.puts "[#{Time.now}] ERROR #{msg}" }
   rescue StandardError
     # Silent fallback
   end

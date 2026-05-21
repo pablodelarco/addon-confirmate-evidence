@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to addon-clouditor-evidence will be documented in this file.
+All notable changes to addon-confirmate-evidence will be documented in this file.
 
 ## [0.1.0] - 2026-03-10
 

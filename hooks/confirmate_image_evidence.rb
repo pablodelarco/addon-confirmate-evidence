@@ -1,11 +1,11 @@
 #!/usr/bin/ruby
 # =============================================================================
-# clouditor_image_evidence.rb - Image state change evidence hook
+# confirmate_image_evidence.rb - Image state change evidence hook
 # =============================================================================
 # OpenNebula hook triggered when an Image reaches READY state.
-# Sends VMImage evidence to Clouditor's Evidence Store.
+# Sends VMImage evidence to Confirmate's Evidence Store.
 #
-# Part of addon-clouditor-evidence (EMERALD project)
+# Part of addon-confirmate-evidence (EMERALD project)
 # =============================================================================
 
 ONE_LOCATION = ENV['ONE_LOCATION']
@@ -14,12 +14,12 @@ if !ONE_LOCATION
   RUBY_LIB_LOCATION = '/usr/lib/one/ruby'
   GEMS_LOCATION     = '/usr/share/one/gems'
   ETC_LOCATION      = '/etc/one'
-  HOOKS_LIB         = '/var/lib/one/remotes/hooks/clouditor-evidence/lib'
+  HOOKS_LIB         = '/var/lib/one/remotes/hooks/confirmate-evidence/lib'
 else
   RUBY_LIB_LOCATION = ONE_LOCATION + '/lib/ruby'
   GEMS_LOCATION     = ONE_LOCATION + '/share/gems'
   ETC_LOCATION      = ONE_LOCATION + '/etc'
-  HOOKS_LIB         = ONE_LOCATION + '/var/remotes/hooks/clouditor-evidence/lib'
+  HOOKS_LIB         = ONE_LOCATION + '/var/remotes/hooks/confirmate-evidence/lib'
 end
 
 if File.directory?(GEMS_LOCATION)
@@ -34,7 +34,7 @@ $LOAD_PATH << HOOKS_LIB
 require 'base64'
 require 'yaml'
 require 'logger'
-require 'clouditor_client'
+require 'confirmate_client'
 require 'ontology_mapper'
 
 begin
@@ -46,18 +46,18 @@ begin
   end
 
   if raw_input.nil? || raw_input.empty?
-    $stderr.puts 'clouditor_image_evidence: no template data received'
+    $stderr.puts 'confirmate_image_evidence: no template data received'
     exit 1
   end
 
   template_xml = Base64.decode64(raw_input)
 
   # Load configuration
-  config_path = File.join(ETC_LOCATION, 'clouditor-evidence.conf')
+  config_path = File.join(ETC_LOCATION, 'confirmate-evidence.conf')
   config = YAML.load_file(config_path)
 
   # Set up logging
-  log_file = config.dig('logging', 'file') || '/var/log/one/clouditor-evidence.log'
+  log_file = config.dig('logging', 'file') || '/var/log/one/confirmate-evidence.log'
   log_level = config.dig('logging', 'level') || 'info'
   logger = Logger.new(log_file, 10, 1_048_576) rescue Logger.new($stderr)
   logger.level = case log_level.downcase
@@ -70,21 +70,21 @@ begin
 
   logger.info('Image evidence hook triggered')
 
-  # Map Image XML to Clouditor ontology
+  # Map Image XML to Confirmate ontology
   mapper = OntologyMapper.new(config)
   evidence = mapper.map_image(template_xml)
 
-  # Send to Clouditor
-  client = ClouditorClient.new(config, logger)
+  # Send to Confirmate
+  client = ConfirmateClient.new(config, logger)
   client.store_evidence(evidence)
 
   logger.info('Image evidence hook completed successfully')
 
 rescue StandardError => e
-  msg = "clouditor_image_evidence: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}"
+  msg = "confirmate_image_evidence: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}"
   $stderr.puts msg
   begin
-    File.open('/var/log/one/clouditor-evidence.log', 'a') { |f| f.puts "[#{Time.now}] ERROR #{msg}" }
+    File.open('/var/log/one/confirmate-evidence.log', 'a') { |f| f.puts "[#{Time.now}] ERROR #{msg}" }
   rescue StandardError
     # Silent fallback
   end

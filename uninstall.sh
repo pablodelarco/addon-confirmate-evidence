@@ -1,8 +1,8 @@
 #!/bin/bash
 # =============================================================================
-# addon-clouditor-evidence - Uninstaller
+# addon-confirmate-evidence - Uninstaller
 # =============================================================================
-# Removes the Clouditor Evidence Collection Gateway from OpenNebula.
+# Removes the Confirmate Evidence Collection Gateway from OpenNebula.
 # Run as root or oneadmin on the OpenNebula Front-End.
 #
 # Part of the EMERALD project (EU Horizon Europe, Grant No. 101120688)
@@ -13,16 +13,16 @@ set -e
 ONE_LOCATION="${ONE_LOCATION:-}"
 if [ -z "$ONE_LOCATION" ]; then
     HOOKS_DIR="/var/lib/one/remotes/hooks"
-    LIB_DIR="/var/lib/one/remotes/hooks/clouditor-evidence"
+    LIB_DIR="/var/lib/one/remotes/hooks/confirmate-evidence"
     ETC_DIR="/etc/one"
 else
     HOOKS_DIR="$ONE_LOCATION/var/remotes/hooks"
-    LIB_DIR="$ONE_LOCATION/var/remotes/hooks/clouditor-evidence"
+    LIB_DIR="$ONE_LOCATION/var/remotes/hooks/confirmate-evidence"
     ETC_DIR="$ONE_LOCATION/etc"
 fi
 
 echo "========================================"
-echo " addon-clouditor-evidence - Uninstaller"
+echo " addon-confirmate-evidence - Uninstaller"
 echo "========================================"
 echo ""
 
@@ -30,13 +30,13 @@ echo ""
 echo "[1/3] Removing registered hooks..."
 if command -v onehook &>/dev/null; then
     HOOK_NAMES=(
-        "hook-clouditor-vm-running"
-        "hook-clouditor-vm-poweroff"
-        "hook-clouditor-vm-done"
-        "hook-clouditor-nic-attach"
-        "hook-clouditor-nic-detach"
-        "hook-clouditor-image-ready"
-        "hook-clouditor-net-create"
+        "hook-confirmate-vm-running"
+        "hook-confirmate-vm-poweroff"
+        "hook-confirmate-vm-done"
+        "hook-confirmate-nic-attach"
+        "hook-confirmate-nic-detach"
+        "hook-confirmate-image-ready"
+        "hook-confirmate-net-create"
     )
     for name in "${HOOK_NAMES[@]}"; do
         hook_id=$(onehook list --no-header 2>/dev/null | grep "$name" | awk '{print $1}')
@@ -53,7 +53,7 @@ fi
 
 # Remove hook scripts
 echo "[2/3] Removing hook scripts and libraries..."
-for script in clouditor_vm_evidence.rb clouditor_nic_evidence.rb clouditor_image_evidence.rb clouditor_net_evidence.rb; do
+for script in confirmate_vm_evidence.rb confirmate_nic_evidence.rb confirmate_image_evidence.rb confirmate_net_evidence.rb; do
     if [ -f "$HOOKS_DIR/$script" ]; then
         rm -f "$HOOKS_DIR/$script"
         echo "  Removed: $HOOKS_DIR/$script"
@@ -67,15 +67,15 @@ fi
 
 # Configuration (ask before removing)
 echo "[3/3] Configuration..."
-if [ -f "$ETC_DIR/clouditor-evidence.conf" ]; then
+if [ -f "$ETC_DIR/confirmate-evidence.conf" ]; then
     read -p "  Remove configuration file? (y/N) " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        rm -f "$ETC_DIR/clouditor-evidence.conf"
-        rm -f "$ETC_DIR/clouditor-evidence.conf.new"
-        echo "  Removed: $ETC_DIR/clouditor-evidence.conf"
+        rm -f "$ETC_DIR/confirmate-evidence.conf"
+        rm -f "$ETC_DIR/confirmate-evidence.conf.new"
+        echo "  Removed: $ETC_DIR/confirmate-evidence.conf"
     else
-        echo "  Configuration preserved at: $ETC_DIR/clouditor-evidence.conf"
+        echo "  Configuration preserved at: $ETC_DIR/confirmate-evidence.conf"
     fi
 fi
 

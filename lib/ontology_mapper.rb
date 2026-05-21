@@ -1,16 +1,16 @@
 # =============================================================================
-# OntologyMapper - Maps OpenNebula XML to Clouditor ontology JSON
+# OntologyMapper - Maps OpenNebula XML to Confirmate ontology JSON
 # =============================================================================
 # Transforms OpenNebula resource representations (XML from hook $TEMPLATE)
-# into Clouditor's ontology-based evidence format for the Evidence Store.
+# into Confirmate's ontology-based evidence format for the Evidence Store.
 #
-# Supported resource types:
+# Supported resource types (confirmate.ontology.v1):
 #   - VirtualMachine  (from ONE VM XML)
 #   - NetworkInterface (from NIC elements within VM XML)
 #   - VMImage         (from ONE Image XML)
 #   - VirtualNetwork  (from ONE Virtual Network XML)
 #
-# Part of addon-clouditor-evidence (EMERALD project)
+# Part of addon-confirmate-evidence (EMERALD project)
 # =============================================================================
 
 require 'rexml/document'
@@ -19,7 +19,7 @@ require 'digest'
 require 'securerandom'
 require 'json'
 
-# Maps OpenNebula resource XML documents to Clouditor ontology JSON structures.
+# Maps OpenNebula resource XML documents to Confirmate ontology JSON structures.
 #
 # Uses deterministic UUID v5 generation so that the same resource at the same
 # timestamp always produces the same evidence ID (idempotency).
@@ -30,8 +30,14 @@ class OntologyMapper
   # @param config [Hash] parsed YAML configuration
   def initialize(config)
     @config = config
-    @tool_id = config.dig('evidence', 'tool_id') || 'opennebula-addon-clouditor-evidence'
-    @cloud_service_id = config.dig('evidence', 'cloud_service_id') || '00000000-0000-0000-0000-000000000000'
+    @tool_id = config.dig('evidence', 'tool_id') || 'opennebula-addon-confirmate-evidence'
+    # In Confirmate the evidence field is `target_of_evaluation_id`. Accept the
+    # old `cloud_service_id` key only as a transient back-compat read so an
+    # operator who upgrades the addon before editing the config still gets a
+    # working install (with a warning); shape changes happen in the wrap.
+    @target_of_evaluation_id = config.dig('evidence', 'target_of_evaluation_id') \
+      || config.dig('evidence', 'cloud_service_id') \
+      || '00000000-0000-0000-0000-000000000000'
     @default_region = config.dig('evidence', 'default_region') || 'eu-south-1'
   end
 
@@ -226,7 +232,7 @@ class OntologyMapper
       'evidence' => {
         'id' => evidence_id,
         'timestamp' => timestamp,
-        'cloudServiceId' => @cloud_service_id,
+        'cloudServiceId' => @target_of_evaluation_id,
         'toolId' => @tool_id,
         'resource' => resource
       }

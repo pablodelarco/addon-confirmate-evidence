@@ -1,18 +1,18 @@
 #!/usr/bin/ruby
 # =============================================================================
-# clouditor_nic_evidence.rb - NIC attach/detach evidence hook
+# confirmate_nic_evidence.rb - NIC attach/detach evidence hook
 # =============================================================================
 # OpenNebula API hook triggered on one.vm.attachnic and one.vm.detachnic calls.
 # Extracts NIC data from the API hook template and sends NetworkInterface
-# evidence to Clouditor's Evidence Store.
+# evidence to Confirmate's Evidence Store.
 #
 # Usage (via hook template):
-#   COMMAND = "clouditor_nic_evidence.rb"
+#   COMMAND = "confirmate_nic_evidence.rb"
 #   ARGUMENTS = "$API"
 #   ARGUMENTS_STDIN = "YES"
 #   CALL = "one.vm.attachnic"
 #
-# Part of addon-clouditor-evidence (EMERALD project)
+# Part of addon-confirmate-evidence (EMERALD project)
 # =============================================================================
 
 ONE_LOCATION = ENV['ONE_LOCATION']
@@ -21,12 +21,12 @@ if !ONE_LOCATION
   RUBY_LIB_LOCATION = '/usr/lib/one/ruby'
   GEMS_LOCATION     = '/usr/share/one/gems'
   ETC_LOCATION      = '/etc/one'
-  HOOKS_LIB         = '/var/lib/one/remotes/hooks/clouditor-evidence/lib'
+  HOOKS_LIB         = '/var/lib/one/remotes/hooks/confirmate-evidence/lib'
 else
   RUBY_LIB_LOCATION = ONE_LOCATION + '/lib/ruby'
   GEMS_LOCATION     = ONE_LOCATION + '/share/gems'
   ETC_LOCATION      = ONE_LOCATION + '/etc'
-  HOOKS_LIB         = ONE_LOCATION + '/var/remotes/hooks/clouditor-evidence/lib'
+  HOOKS_LIB         = ONE_LOCATION + '/var/remotes/hooks/confirmate-evidence/lib'
 end
 
 if File.directory?(GEMS_LOCATION)
@@ -42,7 +42,7 @@ require 'base64'
 require 'yaml'
 require 'logger'
 require 'rexml/document'
-require 'clouditor_client'
+require 'confirmate_client'
 require 'ontology_mapper'
 
 begin
@@ -54,7 +54,7 @@ begin
   end
 
   if raw_input.nil? || raw_input.empty?
-    $stderr.puts 'clouditor_nic_evidence: no API data received'
+    $stderr.puts 'confirmate_nic_evidence: no API data received'
     exit 1
   end
 
@@ -62,11 +62,11 @@ begin
   api_xml = Base64.decode64(raw_input)
 
   # Load configuration
-  config_path = File.join(ETC_LOCATION, 'clouditor-evidence.conf')
+  config_path = File.join(ETC_LOCATION, 'confirmate-evidence.conf')
   config = YAML.load_file(config_path)
 
   # Set up logging
-  log_file = config.dig('logging', 'file') || '/var/log/one/clouditor-evidence.log'
+  log_file = config.dig('logging', 'file') || '/var/log/one/confirmate-evidence.log'
   log_level = config.dig('logging', 'level') || 'info'
   logger = Logger.new(log_file, 10, 1_048_576) rescue Logger.new($stderr)
   logger.level = case log_level.downcase
@@ -126,11 +126,11 @@ begin
       # Map and send NIC evidence
       mapper = OntologyMapper.new(config)
       nic_evidences = mapper.map_nics(vm_xml)
-      clouditor = ClouditorClient.new(config, logger)
+      client = ConfirmateClient.new(config, logger)
 
       nic_evidences.each do |nic_ev|
         begin
-          clouditor.store_evidence(nic_ev)
+          client.store_evidence(nic_ev)
         rescue StandardError => e
           logger.warn("Failed to send NIC evidence: #{e.message}")
         end
@@ -138,7 +138,7 @@ begin
 
       # Also send updated VM evidence (NIC list changed)
       vm_evidence = mapper.map_vm(vm_xml)
-      clouditor.store_evidence(vm_evidence)
+      client.store_evidence(vm_evidence)
 
     rescue LoadError => e
       logger.warn("OpenNebula Ruby bindings not available: #{e.message}")
@@ -151,10 +151,10 @@ begin
   logger.info('NIC evidence hook completed')
 
 rescue StandardError => e
-  msg = "clouditor_nic_evidence: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}"
+  msg = "confirmate_nic_evidence: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}"
   $stderr.puts msg
   begin
-    File.open('/var/log/one/clouditor-evidence.log', 'a') { |f| f.puts "[#{Time.now}] ERROR #{msg}" }
+    File.open('/var/log/one/confirmate-evidence.log', 'a') { |f| f.puts "[#{Time.now}] ERROR #{msg}" }
   rescue StandardError
     # Silent fallback
   end

@@ -1,10 +1,10 @@
 # =============================================================================
-# TokenManager - OAuth2 token management for Clouditor API
+# TokenManager - OAuth2 token management for Confirmate API
 # =============================================================================
 # Obtains and caches bearer tokens via username/password authentication.
 # Automatically refreshes tokens before expiry. Thread-safe.
 #
-# Part of addon-clouditor-evidence (EMERALD project)
+# Part of addon-confirmate-evidence (EMERALD project)
 # =============================================================================
 
 require 'net/http'
@@ -13,7 +13,7 @@ require 'json'
 require 'base64'
 require 'monitor'
 
-# Manages OAuth2 bearer tokens for authenticating with the Clouditor API.
+# Manages OAuth2 bearer tokens for authenticating with the Confirmate API.
 #
 # Supports two modes:
 #   1. Dynamic tokens via username/password authentication (recommended)
@@ -36,7 +36,7 @@ class TokenManager
     @token = nil
     @token_expiry = nil
 
-    auth = config.dig('clouditor', 'auth') || {}
+    auth = config.dig('confirmate', 'auth') || {}
     @token_url = auth['token_url']
     @username = auth['username']
     @password = auth['password']
@@ -70,7 +70,7 @@ class TokenManager
     Time.now.to_i >= (@token_expiry - TOKEN_REFRESH_MARGIN)
   end
 
-  # Obtains a new token from the Clouditor auth endpoint.
+  # Obtains a new token from the Confirmate auth endpoint.
   #
   # @raise [RuntimeError] if authentication fails
   def refresh_token
