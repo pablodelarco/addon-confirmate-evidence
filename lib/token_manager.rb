@@ -1,7 +1,8 @@
 # =============================================================================
 # TokenManager - OAuth2 token management for Confirmate API
 # =============================================================================
-# Obtains and caches bearer tokens via username/password authentication.
+# Obtains and caches bearer tokens via the OAuth 2.0 client_credentials
+# grant against Confirmate's embedded OAuth server (or any compatible IdP).
 # Automatically refreshes tokens before expiry. Thread-safe.
 #
 # Part of addon-confirmate-evidence (EMERALD project)
@@ -13,19 +14,26 @@ require 'json'
 require 'base64'
 require 'monitor'
 
-# Manages OAuth2 bearer tokens for authenticating with the Confirmate API.
+# Manages bearer tokens for authenticating with the Confirmate API.
 #
-# Supports two modes:
-#   1. Dynamic tokens via username/password authentication (recommended)
-#   2. Static pre-configured token (for testing)
+# Three modes:
+#   1. Disabled (auth.enabled = false)         -> #token returns nil; the
+#      ConfirmateClient must skip the Authorization header.
+#   2. Static token (auth.static_token = "..") -> returned verbatim.
+#   3. Dynamic OAuth 2.0 client_credentials    -> POST to auth.token_url
+#      with HTTP Basic (client_id:client_secret); reads access_token and
+#      expires_in from the standard OAuth2 response.
 #
-# Tokens are cached in memory and refreshed automatically when expired.
-# All operations are thread-safe via Monitor mixin.
+# Tokens are cached in memory and refreshed `TOKEN_REFRESH_MARGIN` seconds
+# before expiry. All operations are thread-safe via Monitor mixin.
 class TokenManager
   include MonitorMixin
 
   # Safety margin in seconds before actual token expiry to trigger refresh
   TOKEN_REFRESH_MARGIN = 30
+
+  # Fallback lifetime if the OAuth server omits expires_in
+  DEFAULT_TOKEN_LIFETIME = 3600
 
   # @param config [Hash] parsed YAML configuration
   # @param logger [Logger] logger instance
@@ -37,24 +45,25 @@ class TokenManager
     @token_expiry = nil
 
     auth = config.dig('confirmate', 'auth') || {}
+    @enabled = auth.fetch('enabled', false)
     @token_url = auth['token_url']
-    @username = auth['username']
-    @password = auth['password']
+    @client_id = auth['client_id']
+    @client_secret = auth['client_secret']
     @static_token = auth['static_token']
   end
 
   # Returns a valid bearer token, refreshing if necessary.
+  # Returns nil when authentication is disabled in config — callers must
+  # treat that as "do not send an Authorization header".
   #
-  # @return [String] bearer token
-  # @raise [RuntimeError] if token cannot be obtained
+  # @return [String, nil] bearer token, or nil when auth is disabled
+  # @raise [RuntimeError] if a token is required but cannot be obtained
   def token
     synchronize do
+      return nil unless @enabled
       return @static_token if @static_token && !@static_token.empty?
 
-      if @token.nil? || token_expired?
-        refresh_token
-      end
-
+      refresh_token if @token.nil? || token_expired?
       @token
     end
   end
@@ -62,22 +71,23 @@ class TokenManager
   private
 
   # Checks whether the cached token has expired or is about to expire.
-  #
-  # @return [Boolean] true if token should be refreshed
   def token_expired?
     return true if @token_expiry.nil?
 
     Time.now.to_i >= (@token_expiry - TOKEN_REFRESH_MARGIN)
   end
 
-  # Obtains a new token from the Confirmate auth endpoint.
+  # Obtains a new token from the Confirmate auth endpoint via the OAuth 2.0
+  # client_credentials grant. Sends client_id / client_secret as HTTP Basic
+  # auth and `grant_type=client_credentials` as a form-encoded body.
   #
   # @raise [RuntimeError] if authentication fails
   def refresh_token
-    @logger.debug('TokenManager: refreshing bearer token')
+    @logger.debug('TokenManager: requesting OAuth2 client_credentials token')
 
-    unless @token_url && @username && @password
-      raise 'TokenManager: missing auth configuration (token_url, username, password)'
+    unless @token_url && @client_id && @client_secret
+      raise 'TokenManager: missing auth configuration ' \
+            '(confirmate.auth.token_url, client_id, client_secret)'
     end
 
     uri = URI.parse(@token_url)
@@ -86,64 +96,35 @@ class TokenManager
     http.open_timeout = 10
     http.read_timeout = 10
 
-    request = Net::HTTP::Post.new(uri.path)
-    request['Content-Type'] = 'application/json'
-    request.body = JSON.generate({
-      'username' => @username,
-      'password' => @password
-    })
+    request_path = uri.path.empty? ? '/' : uri.path
+    request_path = "#{request_path}?#{uri.query}" if uri.query
+    request = Net::HTTP::Post.new(request_path)
+    request['Content-Type'] = 'application/x-www-form-urlencoded'
+    request['Accept'] = 'application/json'
+    request.basic_auth(@client_id, @client_secret)
+    request.body = 'grant_type=client_credentials'
 
     response = http.request(request)
 
     unless response.is_a?(Net::HTTPSuccess)
-      raise "TokenManager: authentication failed (HTTP #{response.code}): #{response.body}"
+      raise "TokenManager: token request failed (HTTP #{response.code}): #{response.body}"
     end
 
     data = JSON.parse(response.body)
-    @token = data['token']
+    @token = data['access_token']
 
     unless @token && !@token.empty?
-      raise "TokenManager: no token in auth response: #{response.body}"
+      raise "TokenManager: no access_token in OAuth response: #{response.body}"
     end
 
-    # Extract expiry from JWT payload (without a JWT library)
-    @token_expiry = extract_jwt_expiry(@token)
+    expires_in = data['expires_in']&.to_i
+    expires_in = DEFAULT_TOKEN_LIFETIME if expires_in.nil? || expires_in <= 0
+    @token_expiry = Time.now.to_i + expires_in
 
-    @logger.info("TokenManager: token obtained, expires at #{Time.at(@token_expiry).utc}")
+    @logger.info("TokenManager: token obtained, expires at #{Time.at(@token_expiry).utc} " \
+                 "(expires_in=#{expires_in}s)")
   rescue StandardError => e
     @logger.error("TokenManager: #{e.message}")
     raise
-  end
-
-  # Extracts the 'exp' claim from a JWT token by Base64-decoding the payload.
-  # This avoids requiring an external JWT library.
-  #
-  # @param jwt [String] JWT token string
-  # @return [Integer] expiry time as Unix timestamp
-  def extract_jwt_expiry(jwt)
-    parts = jwt.split('.')
-    if parts.length < 2
-      @logger.warn('TokenManager: token is not a valid JWT, defaulting to 1h expiry')
-      return Time.now.to_i + 3600
-    end
-
-    # JWT Base64url decoding: replace URL-safe chars and pad
-    payload_b64 = parts[1]
-    payload_b64 = payload_b64.tr('-_', '+/')
-    remainder = payload_b64.length % 4
-    payload_b64 += '=' * (4 - remainder) if remainder > 0
-
-    payload = JSON.parse(Base64.decode64(payload_b64))
-    exp = payload['exp']
-
-    if exp.nil?
-      @logger.warn('TokenManager: no exp claim in JWT, defaulting to 1h expiry')
-      return Time.now.to_i + 3600
-    end
-
-    exp.to_i
-  rescue StandardError => e
-    @logger.warn("TokenManager: failed to parse JWT expiry (#{e.message}), defaulting to 1h")
-    Time.now.to_i + 3600
   end
 end

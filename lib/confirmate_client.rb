@@ -104,7 +104,8 @@ class ConfirmateClient
 
     request = Net::HTTP::Post.new(uri.path)
     request['Content-Type'] = 'application/json'
-    request['Authorization'] = "Bearer #{@token_manager.token}"
+    token = @token_manager.token
+    request['Authorization'] = "Bearer #{token}" if token
     request.body = JSON.generate(evidence)
 
     http.request(request)
