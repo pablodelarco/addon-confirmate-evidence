@@ -39,7 +39,7 @@ class ConfirmateClient
     @token_manager = TokenManager.new(config, @logger)
   end
 
-  # Sends an evidence payload to the Clouditor Evidence Store.
+  # Sends an evidence payload to the Confirmate Evidence Store.
   #
   # @param evidence [Hash] evidence payload (as returned by OntologyMapper)
   # @return [Hash] parsed response body on success
