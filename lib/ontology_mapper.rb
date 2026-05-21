@@ -43,8 +43,16 @@ class OntologyMapper
 
   # Maps a full ONE VM XML document to a VirtualMachine evidence payload.
   #
+  # Field mapping vs confirmate.ontology.v1.VirtualMachine:
+  #   - networkInterfaceIds: array of NIC IDs (was networkInterfaces objects)
+  #   - blockStorageIds: array of disk IDs (was blockStorage objects)
+  #   - automaticUpdates: renamed from autoUpdates
+  #   - internetAccessibleEndpoint: renamed from publicIp
+  #   - atRestEncryption: removed (no longer a VM-level field); the algorithm
+  #     and enabled flag remain available in the raw XML, see MIGRATION.md OQ-2
+  #
   # @param xml_str [String] OpenNebula VM XML (decoded from Base64)
-  # @return [Hash] evidence payload ready for ClouditorClient#store_evidence
+  # @return [Hash] evidence payload ready for ConfirmateClient#store_evidence
   def map_vm(xml_str)
     doc = REXML::Document.new(xml_str)
     vm = doc.root
@@ -54,50 +62,31 @@ class OntologyMapper
     stime = text(vm, 'STIME')
     creation_time = epoch_to_rfc3339(stime)
 
-    # Collect NIC references
-    nic_ids = []
-    nics = collect_elements(vm, 'TEMPLATE/NIC')
-    nics.each do |nic|
-      nic_id = text(nic, 'NIC_ID') || '0'
-      nic_ids << "one-nic-#{vm_id}-#{nic_id}"
+    # Collect NIC references (IDs only — NICs are submitted as separate evidence)
+    nic_ids = collect_elements(vm, 'TEMPLATE/NIC').map do |nic|
+      "one-nic-#{vm_id}-#{text(nic, 'NIC_ID') || '0'}"
     end
 
-    # Collect disk/block storage references
-    disk_ids = []
-    disks = collect_elements(vm, 'TEMPLATE/DISK')
-    disks.each do |disk|
-      disk_id = text(disk, 'DISK_ID') || '0'
-      disk_ids << "one-disk-#{vm_id}-#{disk_id}"
+    # Collect disk/block storage references (IDs only)
+    disk_ids = collect_elements(vm, 'TEMPLATE/DISK').map do |disk|
+      "one-disk-#{vm_id}-#{text(disk, 'DISK_ID') || '0'}"
     end
 
-    # Determine at-rest encryption from disks
-    encryption = extract_encryption(disks)
+    # Internet-accessible if any NIC is reachable from outside (was publicIp)
+    has_public_ip = collect_elements(vm, 'TEMPLATE/NIC').any? { |nic| public_nic?(nic) }
 
-    # Check for public IP exposure
-    has_public_ip = nics.any? { |nic| public_nic?(nic) }
-
-    # Build ontology resource
     resource = {
       'virtualMachine' => {
         'id' => "one-vm-#{vm_id}",
         'name' => vm_name,
         'creationTime' => creation_time,
-        'geoLocation' => {
-          'region' => @default_region
-        },
-        'networkInterfaces' => nic_ids,
-        'blockStorage' => disk_ids,
-        'atRestEncryption' => encryption,
-        'bootLogging' => {
-          'enabled' => logging_enabled?(vm)
-        },
-        'osLogging' => {
-          'enabled' => logging_enabled?(vm)
-        },
-        'autoUpdates' => {
-          'enabled' => false
-        },
-        'publicIp' => has_public_ip
+        'geoLocation' => { 'region' => @default_region },
+        'networkInterfaceIds' => nic_ids,
+        'blockStorageIds' => disk_ids,
+        'bootLogging' => { 'enabled' => logging_enabled?(vm) },
+        'osLogging' => { 'enabled' => logging_enabled?(vm) },
+        'automaticUpdates' => { 'enabled' => false },
+        'internetAccessibleEndpoint' => has_public_ip
       }
     }
 
@@ -105,6 +94,11 @@ class OntologyMapper
   end
 
   # Maps NIC elements from a VM XML to NetworkInterface evidence payloads.
+  #
+  # confirmate.ontology.v1.NetworkInterface has no first-class fields for IP
+  # address or security group membership; both are emitted as labels (a
+  # map<string,string>) so they remain queryable. The boolean
+  # `internetAccessibleEndpoint` replaces the previous publicIp/EXTERNAL check.
   #
   # @param xml_str [String] OpenNebula VM XML (decoded from Base64)
   # @return [Array<Hash>] list of evidence payloads, one per NIC
@@ -119,13 +113,19 @@ class OntologyMapper
       nic_id = text(nic, 'NIC_ID') || '0'
       ip = text(nic, 'IP') || ''
       network_name = text(nic, 'NETWORK') || ''
+      sg_ids = text(nic, 'SECURITY_GROUPS') || ''
+
+      labels = {}
+      labels['ip'] = ip unless ip.empty?
+      labels['network'] = network_name unless network_name.empty?
+      labels['securityGroupIds'] = sg_ids unless sg_ids.empty?
 
       resource = {
         'networkInterface' => {
           'id' => "one-nic-#{vm_id}-#{nic_id}",
           'name' => "#{network_name}/nic#{nic_id}",
-          'ip' => [ip],
-          'accessRestriction' => extract_nic_access(nic)
+          'labels' => labels,
+          'internetAccessibleEndpoint' => public_nic?(nic)
         }
       }
 
@@ -218,31 +218,43 @@ class OntologyMapper
 
   private
 
-  # Wraps a mapped ontology resource into a complete evidence payload.
+  # Wraps a mapped ontology resource into a complete Confirmate Evidence payload.
+  #
+  # On-the-wire shape (matches the StoreEvidence REST body annotation
+  # `body: "evidence"` in evidence_store.proto:30-35):
+  #
+  #   {
+  #     "id": "<uuid>",
+  #     "timestamp": "<RFC3339>",
+  #     "targetOfEvaluationId": "<uuid>",
+  #     "toolId": "<string>",
+  #     "resource": { "<lowerCamelOntologyType>": { ..., "raw": "<xml>" } }
+  #   }
+  #
+  # In Confirmate, `raw` lives on each ontology message (e.g.
+  # VirtualMachine.raw at proto field 14073), not on the Evidence itself.
   #
   # @param resource_key [String] unique key for deterministic UUID generation
-  # @param resource [Hash] ontology resource object
-  # @param raw_xml [String, nil] original XML for the raw field
-  # @return [Hash] complete evidence payload
+  # @param resource [Hash] ontology resource object keyed by lowerCamel type
+  # @param raw_xml [String, nil] original XML payload, attached to the resource
+  # @return [Hash] complete Evidence payload (to be POSTed as the HTTP body)
   def wrap_evidence(resource_key, resource, raw_xml)
     timestamp = Time.now.utc.strftime('%Y-%m-%dT%H:%M:%SZ')
     evidence_id = generate_uuid(resource_key, timestamp)
 
-    evidence = {
-      'evidence' => {
-        'id' => evidence_id,
-        'timestamp' => timestamp,
-        'cloudServiceId' => @target_of_evaluation_id,
-        'toolId' => @tool_id,
-        'resource' => resource
-      }
-    }
-
     if raw_xml
-      evidence['evidence']['raw'] = raw_xml.length > 10_000 ? raw_xml[0..9999] : raw_xml
+      type_key = resource.keys.first
+      truncated = raw_xml.length > 10_000 ? raw_xml[0..9999] : raw_xml
+      resource[type_key]['raw'] = truncated
     end
 
-    evidence
+    {
+      'id' => evidence_id,
+      'timestamp' => timestamp,
+      'targetOfEvaluationId' => @target_of_evaluation_id,
+      'toolId' => @tool_id,
+      'resource' => resource
+    }
   end
 
   # Generates a deterministic UUID v5 from a resource key and timestamp.
@@ -254,8 +266,9 @@ class OntologyMapper
   def generate_uuid(resource_key, timestamp)
     name = "#{resource_key}:#{timestamp}"
     Digest::UUID.uuid_v5(NAMESPACE_UUID, name)
-  rescue NoMethodError
-    # Fallback: manual UUID v5 using SHA1
+  rescue NoMethodError, LoadError, NameError
+    # Fallback when Digest::UUID is unavailable (e.g., stock Ruby 2.6):
+    # manual UUID v5 using SHA1, per RFC 4122 §4.3.
     sha1 = Digest::SHA1.hexdigest("#{NAMESPACE_UUID}:#{name}")
     [
       sha1[0..7],
@@ -264,31 +277,6 @@ class OntologyMapper
       ((sha1[16..17].to_i(16) & 0x3F) | 0x80).to_s(16).rjust(2, '0') + sha1[18..19],
       sha1[20..31]
     ].join('-')
-  end
-
-  # Extracts at-rest encryption info from VM disk elements.
-  #
-  # @param disks [Array<REXML::Element>] disk elements
-  # @return [Hash] encryption ontology object
-  def extract_encryption(disks)
-    encrypted_disk = disks.find { |d| text(d, 'ENCRYPT')&.upcase == 'YES' }
-
-    if encrypted_disk
-      algorithm = text(encrypted_disk, 'CIPHER') || 'AES256'
-      {
-        'managedKeyEncryption' => {
-          'algorithm' => algorithm,
-          'enabled' => true
-        }
-      }
-    else
-      {
-        'managedKeyEncryption' => {
-          'algorithm' => 'none',
-          'enabled' => false
-        }
-      }
-    end
   end
 
   # Checks if a NIC has a public (non-RFC1918) IP address.
@@ -324,24 +312,6 @@ class OntologyMapper
     false
   end
 
-  # Extracts access restriction info from a NIC element.
-  # In a full deployment, this would query Security Groups via the ONE API.
-  #
-  # @param nic [REXML::Element] NIC element
-  # @return [Hash] access restriction info
-  def extract_nic_access(nic)
-    sg_ids = text(nic, 'SECURITY_GROUPS')
-    if sg_ids && !sg_ids.empty?
-      {
-        'securityGroups' => sg_ids.split(',').map { |id| "one-sg-#{id.strip}" }
-      }
-    else
-      {
-        'securityGroups' => []
-      }
-    end
-  end
-
   # Checks if VM has logging enabled (heuristic based on template attributes).
   #
   # @param vm [REXML::Element] VM root element
@@ -356,6 +326,20 @@ class OntologyMapper
     return true if monitoring && monitoring.elements.size > 0
 
     false
+  end
+
+  # Converts an OpenNebula epoch timestamp (seconds since 1970 as a string)
+  # to an RFC 3339 UTC datetime. Returns nil on missing/zero/invalid input.
+  #
+  # @param epoch_str [String, nil] e.g. "1709013200"
+  # @return [String, nil] RFC 3339 timestamp or nil
+  def epoch_to_rfc3339(epoch_str)
+    return nil if epoch_str.nil? || epoch_str.empty?
+
+    secs = epoch_str.to_i
+    return nil if secs <= 0
+
+    Time.at(secs).utc.strftime('%Y-%m-%dT%H:%M:%SZ')
   end
 
   # Extracts text content from an XML element by XPath.

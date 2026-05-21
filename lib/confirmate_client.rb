@@ -45,9 +45,9 @@ class ConfirmateClient
   # @return [Hash] parsed response body on success
   # @raise [RuntimeError] if all retries are exhausted
   def store_evidence(evidence)
-    evidence_id = evidence.dig('evidence', 'id') || 'unknown'
-    resource_type = evidence.dig('evidence', 'resource')&.keys&.first || 'unknown'
-    resource_id = evidence.dig('evidence', 'resource', resource_type, 'id') || 'unknown'
+    evidence_id = evidence['id'] || 'unknown'
+    resource_type = evidence['resource']&.keys&.first || 'unknown'
+    resource_id = evidence.dig('resource', resource_type, 'id') || 'unknown'
 
     @logger.info("Sending evidence #{evidence_id} (#{resource_type}: #{resource_id})")
     @logger.debug("Evidence payload: #{JSON.generate(evidence)}")

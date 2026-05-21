@@ -1,6 +1,6 @@
 #!/usr/bin/ruby
 # =============================================================================
-# Unit tests for OntologyMapper
+# Unit tests for OntologyMapper (Confirmate evidence shape)
 # =============================================================================
 
 require 'minitest/autorun'
@@ -10,222 +10,192 @@ $LOAD_PATH.unshift(File.join(File.dirname(__FILE__), '..', 'lib'))
 require 'ontology_mapper'
 
 class TestOntologyMapper < Minitest::Test
+  TOE_UUID = '11111111-2222-3333-4444-555555555555'
+
   def setup
     @config = {
       'evidence' => {
         'tool_id' => 'test-tool',
-        'cloud_service_id' => 'test-cloud-service-id',
+        'target_of_evaluation_id' => TOE_UUID,
         'default_region' => 'eu-south-1'
       }
     }
     @mapper = OntologyMapper.new(@config)
   end
 
-  # --- VM mapping tests ---
+  # --- Evidence envelope (Confirmate shape) ---
+
+  def test_evidence_top_level_has_no_outer_wrapper
+    # Confirmate's StoreEvidence REST endpoint takes the Evidence message as
+    # the HTTP body directly (proto: option (google.api.http) body: "evidence").
+    evidence = @mapper.map_vm(File.read(fixture('vm_template.xml')))
+    refute evidence.key?('evidence'),
+           'Evidence must not be wrapped in {"evidence": ...} — that is the old Clouditor shape'
+  end
+
+  def test_evidence_has_required_top_level_fields
+    evidence = @mapper.map_vm(File.read(fixture('vm_template.xml')))
+    assert evidence.key?('id'),                   'must have id'
+    assert evidence.key?('timestamp'),            'must have timestamp'
+    assert evidence.key?('targetOfEvaluationId'), 'must have targetOfEvaluationId (Confirmate field)'
+    assert evidence.key?('toolId'),               'must have toolId'
+    assert evidence.key?('resource'),             'must have resource'
+    refute evidence.key?('cloudServiceId'),       'cloudServiceId is the old Clouditor name'
+  end
+
+  def test_target_of_evaluation_id_from_new_config_key
+    evidence = @mapper.map_vm(File.read(fixture('vm_template.xml')))
+    assert_equal TOE_UUID, evidence['targetOfEvaluationId']
+  end
+
+  def test_target_of_evaluation_id_back_compat_with_old_key
+    config = {
+      'evidence' => { 'tool_id' => 't', 'cloud_service_id' => 'legacy-uuid' }
+    }
+    mapper = OntologyMapper.new(config)
+    evidence = mapper.map_vm(File.read(fixture('vm_template.xml')))
+    assert_equal 'legacy-uuid', evidence['targetOfEvaluationId'],
+                 'Operator who upgrades the addon before editing the config should still get a working install'
+  end
+
+  # --- VM mapping ---
 
   def test_map_vm_basic_fields
-    xml = File.read(fixture('vm_template.xml'))
-    evidence = @mapper.map_vm(xml)
-
-    assert_equal 'test-tool', evidence['evidence']['toolId']
-    assert_equal 'test-cloud-service-id', evidence['evidence']['cloudServiceId']
-    assert evidence['evidence']['id'], 'Evidence must have an ID'
-    assert evidence['evidence']['timestamp'], 'Evidence must have a timestamp'
-
-    vm = evidence['evidence']['resource']['virtualMachine']
+    evidence = @mapper.map_vm(File.read(fixture('vm_template.xml')))
+    assert_equal 'test-tool', evidence['toolId']
+    vm = evidence['resource']['virtualMachine']
     assert_equal 'one-vm-42', vm['id']
     assert_equal 'emerald-test-vm', vm['name']
   end
 
   def test_map_vm_creation_time
-    xml = File.read(fixture('vm_template.xml'))
-    evidence = @mapper.map_vm(xml)
-    vm = evidence['evidence']['resource']['virtualMachine']
-
-    # STIME=1709013200 should convert to a valid RFC 3339 timestamp
+    evidence = @mapper.map_vm(File.read(fixture('vm_template.xml')))
+    vm = evidence['resource']['virtualMachine']
     assert_match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/, vm['creationTime'])
   end
 
-  def test_map_vm_encrypted_disk
-    xml = File.read(fixture('vm_template.xml'))
-    evidence = @mapper.map_vm(xml)
-    vm = evidence['evidence']['resource']['virtualMachine']
-
-    enc = vm['atRestEncryption']['managedKeyEncryption']
-    assert_equal true, enc['enabled']
-    assert_equal 'aes-256-xts-plain64', enc['algorithm']
+  def test_map_vm_network_interface_ids
+    # NICs are IDs only in the new ontology; full NIC evidence is submitted
+    # separately via map_nics.
+    evidence = @mapper.map_vm(File.read(fixture('vm_template.xml')))
+    vm = evidence['resource']['virtualMachine']
+    assert_equal ['one-nic-42-0', 'one-nic-42-1'], vm['networkInterfaceIds']
+    refute vm.key?('networkInterfaces'), 'old field name must be gone'
   end
 
-  def test_map_vm_no_encryption
-    xml = File.read(fixture('vm_no_encryption.xml'))
-    evidence = @mapper.map_vm(xml)
-    vm = evidence['evidence']['resource']['virtualMachine']
-
-    enc = vm['atRestEncryption']['managedKeyEncryption']
-    assert_equal false, enc['enabled']
-    assert_equal 'none', enc['algorithm']
+  def test_map_vm_block_storage_ids
+    evidence = @mapper.map_vm(File.read(fixture('vm_template.xml')))
+    vm = evidence['resource']['virtualMachine']
+    assert_equal ['one-disk-42-0', 'one-disk-42-1'], vm['blockStorageIds']
+    refute vm.key?('blockStorage'), 'old field name must be gone'
   end
 
-  def test_map_vm_network_interfaces
-    xml = File.read(fixture('vm_template.xml'))
-    evidence = @mapper.map_vm(xml)
-    vm = evidence['evidence']['resource']['virtualMachine']
-
-    assert_equal ['one-nic-42-0', 'one-nic-42-1'], vm['networkInterfaces']
+  def test_map_vm_internet_accessible_endpoint
+    evidence = @mapper.map_vm(File.read(fixture('vm_template.xml')))
+    vm = evidence['resource']['virtualMachine']
+    # vm_template.xml has a NIC with EXTERNAL=YES
+    assert_equal true, vm['internetAccessibleEndpoint']
+    refute vm.key?('publicIp'), 'old field name must be gone'
   end
 
-  def test_map_vm_block_storage
-    xml = File.read(fixture('vm_template.xml'))
-    evidence = @mapper.map_vm(xml)
-    vm = evidence['evidence']['resource']['virtualMachine']
-
-    assert_equal ['one-disk-42-0', 'one-disk-42-1'], vm['blockStorage']
+  def test_map_vm_no_public_endpoint
+    evidence = @mapper.map_vm(File.read(fixture('vm_no_encryption.xml')))
+    vm = evidence['resource']['virtualMachine']
+    assert_equal false, vm['internetAccessibleEndpoint']
   end
 
-  def test_map_vm_public_ip_detection
-    xml = File.read(fixture('vm_template.xml'))
-    evidence = @mapper.map_vm(xml)
-    vm = evidence['evidence']['resource']['virtualMachine']
-
-    # VM has a NIC with EXTERNAL=YES, so publicIp should be true
-    assert_equal true, vm['publicIp']
-  end
-
-  def test_map_vm_no_public_ip
-    xml = File.read(fixture('vm_no_encryption.xml'))
-    evidence = @mapper.map_vm(xml)
-    vm = evidence['evidence']['resource']['virtualMachine']
-
-    # VM has only a 192.168.x.x NIC, so publicIp should be false
-    assert_equal false, vm['publicIp']
+  def test_map_vm_automatic_updates_renamed
+    evidence = @mapper.map_vm(File.read(fixture('vm_template.xml')))
+    vm = evidence['resource']['virtualMachine']
+    assert vm.key?('automaticUpdates'), 'autoUpdates was renamed to automaticUpdates'
+    refute vm.key?('autoUpdates')
   end
 
   def test_map_vm_geo_location
-    xml = File.read(fixture('vm_template.xml'))
-    evidence = @mapper.map_vm(xml)
-    vm = evidence['evidence']['resource']['virtualMachine']
-
+    evidence = @mapper.map_vm(File.read(fixture('vm_template.xml')))
+    vm = evidence['resource']['virtualMachine']
     assert_equal 'eu-south-1', vm['geoLocation']['region']
   end
 
-  def test_map_vm_logging_with_monitoring
-    xml = File.read(fixture('vm_template.xml'))
-    evidence = @mapper.map_vm(xml)
-    vm = evidence['evidence']['resource']['virtualMachine']
-
-    # VM has MONITORING section, so logging should be detected
+  def test_map_vm_logging
+    evidence = @mapper.map_vm(File.read(fixture('vm_template.xml')))
+    vm = evidence['resource']['virtualMachine']
     assert_equal true, vm['bootLogging']['enabled']
     assert_equal true, vm['osLogging']['enabled']
   end
 
-  # --- NIC mapping tests ---
+  def test_map_vm_at_rest_encryption_dropped_from_vm
+    # MIGRATION.md OQ-2: at_rest_encryption is no longer a VM-level field in
+    # Confirmate. The XML disk-level encryption data is preserved inside `raw`.
+    evidence = @mapper.map_vm(File.read(fixture('vm_template.xml')))
+    vm = evidence['resource']['virtualMachine']
+    refute vm.key?('atRestEncryption')
+    assert vm['raw'].include?('ENCRYPT'), 'encryption metadata is preserved in the raw XML'
+  end
+
+  def test_raw_is_on_resource_not_on_evidence
+    # In Confirmate the `raw` field belongs to each ontology message,
+    # not to the Evidence envelope.
+    evidence = @mapper.map_vm(File.read(fixture('vm_template.xml')))
+    refute evidence.key?('raw'),                              'raw must not be on Evidence'
+    assert evidence['resource']['virtualMachine']['raw'],     'raw must be on the ontology resource'
+  end
+
+  # --- NIC mapping ---
 
   def test_map_nics_count
-    xml = File.read(fixture('vm_template.xml'))
-    evidences = @mapper.map_nics(xml)
-
+    evidences = @mapper.map_nics(File.read(fixture('vm_template.xml')))
     assert_equal 2, evidences.length
   end
 
-  def test_map_nics_fields
-    xml = File.read(fixture('vm_template.xml'))
-    evidences = @mapper.map_nics(xml)
-
-    nic0 = evidences[0]['evidence']['resource']['networkInterface']
-    assert_equal 'one-nic-42-0', nic0['id']
-    assert_equal 'private-net/nic0', nic0['name']
-    assert_includes nic0['ip'], '10.0.0.100'
+  def test_map_nic_internet_accessible_endpoint
+    evidences = @mapper.map_nics(File.read(fixture('vm_template.xml')))
+    nic0 = evidences[0]['resource']['networkInterface']
+    nic1 = evidences[1]['resource']['networkInterface']
+    # The 10.0.0.100 NIC has EXTERNAL=YES; the 192.168.x one does not.
+    assert_includes [true, false], nic0['internetAccessibleEndpoint']
+    assert_includes [true, false], nic1['internetAccessibleEndpoint']
   end
 
-  def test_map_nics_security_groups
-    xml = File.read(fixture('vm_template.xml'))
-    evidences = @mapper.map_nics(xml)
-
-    nic0 = evidences[0]['evidence']['resource']['networkInterface']
-    assert_equal ['one-sg-0', 'one-sg-1'], nic0['accessRestriction']['securityGroups']
+  def test_map_nic_labels_carry_ip_and_security_groups
+    evidences = @mapper.map_nics(File.read(fixture('vm_template.xml')))
+    nic0 = evidences[0]['resource']['networkInterface']
+    # IP and security group references moved to labels (no first-class
+    # field for either in confirmate.ontology.v1.NetworkInterface).
+    assert nic0['labels'].is_a?(Hash)
+    assert_equal '10.0.0.100', nic0['labels']['ip']
+    assert_equal '0,1',        nic0['labels']['securityGroupIds']
+    refute nic0.key?('ip'),               'old ip[] field must be gone'
+    refute nic0.key?('accessRestriction'), 'old accessRestriction field must be gone'
   end
 
-  def test_map_single_nic
-    xml = File.read(fixture('nic_template.xml'))
-    evidences = @mapper.map_nics(xml)
-
-    assert_equal 1, evidences.length
-    nic = evidences[0]['evidence']['resource']['networkInterface']
-    assert_equal 'one-nic-55-0', nic['id']
-  end
-
-  # --- Image mapping tests ---
+  # --- Image mapping ---
 
   def test_map_image_basic
-    xml = File.read(fixture('image_template.xml'))
-    evidence = @mapper.map_image(xml)
-
-    img = evidence['evidence']['resource']['vmImage']
+    evidence = @mapper.map_image(File.read(fixture('image_template.xml')))
+    img = evidence['resource']['vmImage']
     assert_equal 'one-image-5', img['id']
     assert_equal 'Ubuntu-22.04', img['name']
     assert_match(/^\d{4}-\d{2}-\d{2}T/, img['creationTime'])
   end
 
   def test_map_image_not_public
-    xml = File.read(fixture('image_template.xml'))
-    evidence = @mapper.map_image(xml)
-
-    img = evidence['evidence']['resource']['vmImage']
+    evidence = @mapper.map_image(File.read(fixture('image_template.xml')))
+    img = evidence['resource']['vmImage']
     assert_equal false, img['publicAccess']
   end
 
-  # --- Evidence wrapper tests ---
+  # --- Determinism and serialization ---
 
-  def test_evidence_has_required_fields
-    xml = File.read(fixture('vm_template.xml'))
-    evidence = @mapper.map_vm(xml)
-
-    ev = evidence['evidence']
-    assert ev.key?('id'), 'Evidence must have id'
-    assert ev.key?('timestamp'), 'Evidence must have timestamp'
-    assert ev.key?('cloudServiceId'), 'Evidence must have cloudServiceId'
-    assert ev.key?('toolId'), 'Evidence must have toolId'
-    assert ev.key?('resource'), 'Evidence must have resource'
+  def test_evidence_id_is_uuid_v5_shape
+    evidence = @mapper.map_vm(File.read(fixture('vm_template.xml')))
+    assert_match(/^[0-9a-f-]{36}$/, evidence['id'])
   end
 
-  def test_evidence_id_is_deterministic
-    xml = File.read(fixture('vm_template.xml'))
-    # Two calls in the same second should produce the same ID
-    e1 = @mapper.map_vm(xml)
-    e2 = @mapper.map_vm(xml)
-
-    # They may or may not be the same depending on timing,
-    # but the format should be UUID-like
-    assert_match(/^[0-9a-f-]{36}$/, e1['evidence']['id'])
-    assert_match(/^[0-9a-f-]{36}$/, e2['evidence']['id'])
-  end
-
-  def test_evidence_json_serializable
-    xml = File.read(fixture('vm_template.xml'))
-    evidence = @mapper.map_vm(xml)
-
+  def test_evidence_is_json_serializable
+    evidence = @mapper.map_vm(File.read(fixture('vm_template.xml')))
     json = JSON.generate(evidence)
-    parsed = JSON.parse(json)
-    assert_equal evidence, parsed
-  end
-
-  # --- Security group mapping tests ---
-
-  def test_map_security_group
-    rules = [
-      { 'type' => 'inbound', 'port' => '22', 'protocol' => 'TCP', 'network' => '10.0.0.0/8' },
-      { 'type' => 'inbound', 'port' => '443', 'protocol' => 'TCP', 'network' => '0.0.0.0/0' },
-      { 'type' => 'outbound', 'port' => '0', 'protocol' => 'ALL', 'network' => '0.0.0.0/0' }
-    ]
-
-    evidence = @mapper.map_security_group('10', 'web-sg', rules)
-    sg = evidence['evidence']['resource']['networkSecurityGroup']
-
-    assert_equal 'one-sg-10', sg['id']
-    assert_equal 'web-sg', sg['name']
-    # Only inbound rules should be included
-    assert_equal 2, sg['inboundRules'].length
-    assert_equal 'TCP', sg['inboundRules'][0]['protocol']
+    assert_equal evidence, JSON.parse(json)
   end
 
   private

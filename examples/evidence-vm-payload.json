@@ -1,42 +1,34 @@
 {
-  "evidence": {
-    "id": "550e8400-e29b-41d4-a716-446655440001",
-    "timestamp": "2026-03-10T09:00:00Z",
-    "cloudServiceId": "a1b2c3d4-0000-0000-0000-000000000001",
-    "toolId": "opennebula-addon-clouditor-evidence",
-    "raw": "{\"vm_id\":42,\"name\":\"emerald-demo-vm\",\"state\":\"ACTIVE/RUNNING\"}",
-    "resource": {
-      "virtualMachine": {
-        "id": "one-vm-42",
-        "name": "emerald-demo-vm",
-        "creationTime": "2026-03-10T08:30:00Z",
-        "geoLocation": {
-          "region": "eu-south-1"
-        },
-        "networkInterfaces": [
-          "one-nic-42-0",
-          "one-nic-42-1"
-        ],
-        "blockStorage": [
-          "one-disk-42-0"
-        ],
-        "atRestEncryption": {
-          "managedKeyEncryption": {
-            "algorithm": "aes-256-xts-plain64",
-            "enabled": true
-          }
-        },
-        "bootLogging": {
-          "enabled": true
-        },
-        "osLogging": {
-          "enabled": true
-        },
-        "autoUpdates": {
-          "enabled": false
-        },
-        "publicIp": false
-      }
+  "id": "550e8400-e29b-41d4-a716-446655440001",
+  "timestamp": "2026-03-10T09:00:00Z",
+  "targetOfEvaluationId": "a1b2c3d4-0000-0000-0000-000000000001",
+  "toolId": "opennebula-addon-confirmate-evidence",
+  "resource": {
+    "virtualMachine": {
+      "id": "one-vm-42",
+      "name": "emerald-demo-vm",
+      "creationTime": "2026-03-10T08:30:00Z",
+      "geoLocation": {
+        "region": "eu-south-1"
+      },
+      "networkInterfaceIds": [
+        "one-nic-42-0",
+        "one-nic-42-1"
+      ],
+      "blockStorageIds": [
+        "one-disk-42-0"
+      ],
+      "bootLogging": {
+        "enabled": true
+      },
+      "osLogging": {
+        "enabled": true
+      },
+      "automaticUpdates": {
+        "enabled": false
+      },
+      "internetAccessibleEndpoint": false,
+      "raw": "<VM><ID>42</ID><NAME>emerald-demo-vm</NAME>...</VM>"
     }
   }
 }
