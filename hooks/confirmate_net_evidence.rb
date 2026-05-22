@@ -71,57 +71,39 @@ begin
 
   logger.info('Network evidence hook triggered')
 
-  # For API hooks, extract the VNet ID from the API call result
-  # and fetch the full VNet XML via ONE API
+  # OpenNebula 7.2 API-hook payload (POST-hook) shape:
+  #   <CALL_INFO>
+  #     <RESULT>...</RESULT>
+  #     <PARAMETERS>...IN+OUT...</PARAMETERS>
+  #     <EXTRA><VNET>...full resource XML...</VNET></EXTRA>
+  #   </CALL_INFO>
+  # The EXTRA section already contains the resource — no XML-RPC fetch needed.
   doc = REXML::Document.new(api_xml)
 
-  # Extract the VNet ID from API response (output parameter)
-  vnet_id = nil
-  doc.each_element('HOOK_MESSAGE/PARAMETERS/PARAMETER') do |param|
-    type = param.elements['TYPE']&.text
-    if type == 'OUT'
-      # The OUT parameter contains the result (VNet ID on success)
-      value = param.elements['VALUE']&.text
-      # Parse the XML-RPC response to get the VNet ID
-      begin
-        result_doc = REXML::Document.new(value)
-        vnet_id = result_doc.elements['methodResponse/params/param/value/array/data/value[2]/i4']&.text
-      rescue StandardError
-        vnet_id = value
-      end
-      break
-    end
+  vnet_elem = doc.elements['CALL_INFO/EXTRA/VNET'] \
+           || doc.elements['HOOK_MESSAGE/EXTRA/VNET'] # legacy fallback
+
+  if vnet_elem.nil?
+    logger.warn('No VNET element in API hook payload — skipping')
+    exit 0
   end
 
-  if vnet_id
-    logger.info("Network creation detected: VNet #{vnet_id}")
+  # Serialize the <VNET> subtree to a string. OntologyMapper#map_network
+  # expects a root XML document whose root is the resource, matching
+  # `onevnet show -x` output. Build a fresh document around it.
+  vnet_doc = REXML::Document.new
+  vnet_doc << vnet_elem.deep_clone
+  vnet_xml = String.new
+  vnet_doc.write(vnet_xml)
 
-    begin
-      require 'opennebula'
+  vnet_id = vnet_elem.elements['ID']&.text
+  logger.info("Network creation detected: VNet #{vnet_id}")
 
-      client = OpenNebula::Client.new
-      vnet = OpenNebula::VirtualNetwork.new_with_id(vnet_id.to_i, client)
-      rc = vnet.info
+  mapper = OntologyMapper.new(config)
+  evidence = mapper.map_network(vnet_xml)
 
-      if OpenNebula.is_error?(rc)
-        logger.error("Failed to fetch VNet #{vnet_id}: #{rc.message}")
-        exit 0
-      end
-
-      vnet_xml = vnet.to_xml
-
-      mapper = OntologyMapper.new(config)
-      evidence = mapper.map_network(vnet_xml)
-
-      client = ConfirmateClient.new(config, logger)
-      client.store_evidence(evidence)
-
-    rescue LoadError => e
-      logger.warn("OpenNebula Ruby bindings not available: #{e.message}")
-    end
-  else
-    logger.warn('Could not extract VNet ID from API hook data')
-  end
+  client = ConfirmateClient.new(config, logger)
+  client.store_evidence(evidence)
 
   logger.info('Network evidence hook completed')
 

@@ -79,74 +79,46 @@ begin
 
   logger.info('NIC evidence hook triggered')
 
-  # API hooks wrap content in <HOOK_MESSAGE>. Extract the relevant parameters.
-  # The API hook XML contains:
-  #   <HOOK_MESSAGE>
-  #     <CALL_INFO>...</CALL_INFO>
-  #     <PARAMETERS>
-  #       <PARAMETER>
-  #         <POSITION>N</POSITION>
-  #         <TYPE>IN/OUT</TYPE>
-  #         <VALUE>Base64-encoded value</VALUE>
-  #       </PARAMETER>
-  #     </PARAMETERS>
-  #   </HOOK_MESSAGE>
+  # OpenNebula 7.2 API-hook payload (POST-hook) shape:
+  #   <CALL_INFO>
+  #     <RESULT>...</RESULT>
+  #     <PARAMETERS>...IN+OUT...</PARAMETERS>
+  #     <EXTRA><VM>...full resource XML...</VM></EXTRA>
+  #   </CALL_INFO>
+  # For one.vm.attachnic / one.vm.detachnic the EXTRA carries the post-call
+  # VM XML, so we can map directly without an XML-RPC round trip.
   doc = REXML::Document.new(api_xml)
 
-  # For attachnic, parameter 1 is the VM ID, parameter 2 is the NIC template
-  # After the API call succeeds, we need the VM data to send full evidence
-  # Try to extract the VM ID and use ONE API to get the full VM XML
-  vm_id = nil
-  doc.each_element('HOOK_MESSAGE/PARAMETERS/PARAMETER') do |param|
-    pos = param.elements['POSITION']&.text
-    if pos == '1'
-      vm_id = param.elements['VALUE']&.text
-      break
-    end
+  vm_elem = doc.elements['CALL_INFO/EXTRA/VM'] \
+         || doc.elements['HOOK_MESSAGE/EXTRA/VM'] # legacy fallback
+
+  if vm_elem.nil?
+    logger.warn('No VM element in API hook payload — skipping')
+    exit 0
   end
 
-  if vm_id
-    logger.info("NIC change detected for VM #{vm_id}")
+  vm_doc = REXML::Document.new
+  vm_doc << vm_elem.deep_clone
+  vm_xml = String.new
+  vm_doc.write(vm_xml)
 
-    # Use OpenNebula Ruby bindings to fetch full VM data
+  vm_id = vm_elem.elements['ID']&.text
+  logger.info("NIC change detected for VM #{vm_id}")
+
+  mapper = OntologyMapper.new(config)
+  client = ConfirmateClient.new(config, logger)
+
+  # Submit one NetworkInterface evidence per NIC, plus an updated VM evidence
+  # so networkInterfaceIds reflects the new state.
+  mapper.map_nics(vm_xml).each do |nic_ev|
     begin
-      require 'opennebula'
-
-      client = OpenNebula::Client.new
-      vm = OpenNebula::VirtualMachine.new_with_id(vm_id.to_i, client)
-      rc = vm.info
-
-      if OpenNebula.is_error?(rc)
-        logger.error("Failed to fetch VM #{vm_id}: #{rc.message}")
-        exit 0
-      end
-
-      vm_xml = vm.to_xml
-
-      # Map and send NIC evidence
-      mapper = OntologyMapper.new(config)
-      nic_evidences = mapper.map_nics(vm_xml)
-      client = ConfirmateClient.new(config, logger)
-
-      nic_evidences.each do |nic_ev|
-        begin
-          client.store_evidence(nic_ev)
-        rescue StandardError => e
-          logger.warn("Failed to send NIC evidence: #{e.message}")
-        end
-      end
-
-      # Also send updated VM evidence (NIC list changed)
-      vm_evidence = mapper.map_vm(vm_xml)
-      client.store_evidence(vm_evidence)
-
-    rescue LoadError => e
-      logger.warn("OpenNebula Ruby bindings not available: #{e.message}")
-      logger.warn('NIC evidence will be sent on next VM state change')
+      client.store_evidence(nic_ev)
+    rescue StandardError => e
+      logger.warn("Failed to send NIC evidence: #{e.message}")
     end
-  else
-    logger.warn('Could not extract VM ID from API hook data')
   end
+
+  client.store_evidence(mapper.map_vm(vm_xml))
 
   logger.info('NIC evidence hook completed')
 
