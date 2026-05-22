@@ -22,32 +22,37 @@ EMERALD UI.
 ## How it works
 
 ```mermaid
-flowchart LR
-    subgraph ONE["🟢 OpenNebula Front-End"]
-        direction TB
-        ACT["onevm create<br/>onevm nic-attach<br/>oneimage create<br/>onevnet create"]
+%%{init: {"flowchart": {"nodeSpacing": 60, "rankSpacing": 90, "curve": "basis"}, "themeVariables": {"fontSize": "20px"}}}%%
+flowchart TB
+    subgraph ONE["🟢 &nbsp;OpenNebula Front-End"]
+        direction LR
+        ACT["<b>onevm create</b><br/><b>onevm nic-attach</b><br/><b>oneimage create</b><br/><b>onevnet create</b>"]
         HOOK["hook-confirmate-* scripts<br/>fire automatically"]
         LIB["OntologyMapper<br/>ConfirmateClient<br/>TokenManager"]
         ACT -->|"state change<br/>or API call"| HOOK
         HOOK --> LIB
     end
 
-    subgraph CF["🔵 Confirmate"]
-        direction TB
+    subgraph CF["🔵 &nbsp;Confirmate"]
+        direction LR
         EV["Evidence Store"]
         AS["Assessment Engine<br/>(Rego policies)"]
         OR["Orchestrator<br/>+ Verdict store"]
         EV --> AS --> OR
     end
 
-    UI["⬜ EMERALD UI<br/>compliance dashboard"]
+    UI["⬜ &nbsp;<b>EMERALD UI</b><br/>compliance dashboard"]
 
-    LIB -->|"POST /v1/evidence_store/evidence<br/>OAuth2 Bearer JWT"| EV
-    OR -->|"GET /v1/orchestrator/assessment_results"| UI
+    LIB ==>|"<b>POST</b> /v1/evidence_store/evidence<br/>OAuth2 Bearer JWT"| EV
+    OR ==>|"<b>GET</b> /v1/orchestrator/assessment_results"| UI
 
-    style ONE fill:#0e3a1a,stroke:#0a6,color:#fff
-    style CF fill:#0a2540,stroke:#06f,color:#fff
-    style UI fill:#222,stroke:#ccc,color:#fff
+    classDef oneStyle fill:#0e3a1a,stroke:#0a6,stroke-width:2px,color:#fff
+    classDef cfStyle  fill:#0a2540,stroke:#06f,stroke-width:2px,color:#fff
+    classDef uiStyle  fill:#222,stroke:#ccc,stroke-width:2px,color:#fff
+
+    class ONE oneStyle
+    class CF cfStyle
+    class UI uiStyle
 ```
 
 In one sentence: **a few small Ruby scripts attached to OpenNebula's
