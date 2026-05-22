@@ -14,6 +14,11 @@ CSA CCM metrics against the evidence; verdicts surface in the EMERALD UI.
 Part of the **EMERALD** project (EU Horizon Europe, grant 101120688),
 Pilot 4 — hybrid cloud-edge certification for the financial sector.
 
+```text
+[OpenNebula]  -- hooks fire -->  [addon]  -- HTTP POST -->  [Confirmate]  -->  [EMERALD UI]
+ (CaixaBank)                    (this repo)   evidence      (Fraunhofer)
+```
+
 ---
 
 ## How it works
