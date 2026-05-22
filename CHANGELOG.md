@@ -7,8 +7,8 @@ All notable changes to addon-confirmate-evidence will be documented in this file
 ### Changed — Clouditor → Confirmate migration
 
 Clouditor has been replaced by its successor [Confirmate](https://github.com/confirmate/confirmate).
-This release migrates the addon end-to-end. For step-by-step install
-instructions, see [TUTORIAL.md](TUTORIAL.md).
+This release migrates the addon end-to-end. For install + use
+instructions, see [README.md](README.md).
 
 - Library, hooks, templates, config file, and the `hook-*` names renamed
   from `clouditor_*` / `hook-clouditor-*` to `confirmate_*` / `hook-confirmate-*`.
