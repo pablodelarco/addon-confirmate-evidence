@@ -21,47 +21,39 @@ EMERALD UI.
 
 ## How it works
 
-```mermaid
----
-config:
-  layout: elk
-  flowchart:
-    nodeSpacing: 25
-    rankSpacing: 35
-    curve: basis
-  themeVariables:
-    fontSize: 12px
----
-flowchart TB
-    subgraph ONE["🟢 OpenNebula Front-End"]
-        direction LR
-        ACT["onevm create<br/>onevm nic-attach<br/>oneimage create<br/>onevnet create"]
-        HOOK["hook-confirmate-* scripts<br/>fire automatically"]
-        LIB["OntologyMapper<br/>ConfirmateClient<br/>TokenManager"]
-        ACT -->|"state change<br/>or API call"| HOOK
-        HOOK --> LIB
-    end
-
-    subgraph CF["🔵 Confirmate"]
-        direction LR
-        EV["Evidence Store"]
-        AS["Assessment Engine<br/>(Rego policies)"]
-        OR["Orchestrator<br/>+ Verdict store"]
-        EV --> AS --> OR
-    end
-
-    UI["⬜ <b>EMERALD UI</b><br/>compliance dashboard"]
-
-    LIB ==>|"<b>POST</b> /v1/evidence_store/evidence<br/>OAuth2 Bearer JWT"| EV
-    OR ==>|"<b>GET</b> /v1/orchestrator/assessment_results"| UI
-
-    classDef oneStyle fill:#0e3a1a,stroke:#0a6,stroke-width:2px,color:#fff
-    classDef cfStyle  fill:#0a2540,stroke:#06f,stroke-width:2px,color:#fff
-    classDef uiStyle  fill:#222,stroke:#ccc,stroke-width:2px,color:#fff
-
-    class ONE oneStyle
-    class CF cfStyle
-    class UI uiStyle
+```text
+┌────────────────────────────────────────────────────────────────────┐
+│  🟢  OpenNebula Front-End                                          │
+│                                                                    │
+│  ┌─────────────┐     ┌──────────────┐     ┌──────────────────┐     │
+│  │  onevm      │     │ hook-        │     │ OntologyMapper   │     │
+│  │  create     │     │ confirmate-* │     │ ConfirmateClient │     │
+│  │  nic-attach │ ──> │ scripts      │ ──> │ TokenManager     │     │
+│  │  oneimage   │     │ fire         │     │                  │     │
+│  │  onevnet    │     │ automatic.   │     │                  │     │
+│  └─────────────┘     └──────────────┘     └──────────────────┘     │
+└────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  │  POST /v1/evidence_store/evidence
+                                  │  OAuth2 Bearer JWT
+                                  ▼
+┌────────────────────────────────────────────────────────────────────┐
+│  🔵  Confirmate                                                    │
+│                                                                    │
+│  ┌──────────────┐     ┌──────────────┐     ┌──────────────────┐    │
+│  │  Evidence    │     │  Assessment  │     │  Orchestrator    │    │
+│  │  Store       │ ──> │  Engine      │ ──> │  + Verdict store │    │
+│  │              │     │  (Rego)      │     │                  │    │
+│  └──────────────┘     └──────────────┘     └──────────────────┘    │
+└────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  │  GET /v1/orchestrator/assessment_results
+                                  ▼
+                       ┌──────────────────────┐
+                       │  ⬜  EMERALD UI       │
+                       │      compliance      │
+                       │      dashboard       │
+                       └──────────────────────┘
 ```
 
 In one sentence: **a few small Ruby scripts attached to OpenNebula's
