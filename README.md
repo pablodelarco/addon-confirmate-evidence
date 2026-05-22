@@ -365,9 +365,6 @@ addon-confirmate-evidence/
 └── install.sh / uninstall.sh
 ```
 
-The legacy `demo/` directory is the Clouditor-era Docker setup and is
-not maintained for Confirmate.
-
 ---
 
 ## Appendix A — Local Confirmate for testing

@@ -48,8 +48,9 @@ class OntologyMapper
   #   - blockStorageIds: array of disk IDs (was blockStorage objects)
   #   - automaticUpdates: renamed from autoUpdates
   #   - internetAccessibleEndpoint: renamed from publicIp
-  #   - atRestEncryption: removed (no longer a VM-level field); the algorithm
-  #     and enabled flag remain available in the raw XML, see MIGRATION.md OQ-2
+  #   - atRestEncryption: removed (no longer a VM-level field in
+  #     confirmate.ontology.v1); the algorithm and enabled flag remain
+  #     available in the attached raw XML.
   #
   # @param xml_str [String] OpenNebula VM XML (decoded from Base64)
   # @return [Hash] evidence payload ready for ConfirmateClient#store_evidence

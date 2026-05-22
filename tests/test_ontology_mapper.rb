@@ -125,8 +125,9 @@ class TestOntologyMapper < Minitest::Test
   end
 
   def test_map_vm_at_rest_encryption_dropped_from_vm
-    # MIGRATION.md OQ-2: at_rest_encryption is no longer a VM-level field in
-    # Confirmate. The XML disk-level encryption data is preserved inside `raw`.
+    # at_rest_encryption is no longer a VM-level field in
+    # confirmate.ontology.v1. The XML disk-level encryption data is
+    # preserved inside `raw` instead.
     evidence = @mapper.map_vm(File.read(fixture('vm_template.xml')))
     vm = evidence['resource']['virtualMachine']
     refute vm.key?('atRestEncryption')

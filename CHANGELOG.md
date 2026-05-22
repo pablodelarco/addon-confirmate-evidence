@@ -51,10 +51,11 @@ instructions, see [README.md](README.md).
   `NoMethodError`); the rescue now covers all three and falls back to
   manual SHA1 UUIDv5.
 
-### Not yet migrated
+### Removed
 
-- `demo/` directory still contains the Clouditor-era Docker setup. Use
-  an upstream Confirmate checkout per README "Quick Start" instead.
+- The Clouditor-era `demo/` directory (Docker Compose + setup scripts)
+  has been dropped. For local testing, follow the upstream Confirmate
+  recipe in README "Appendix A".
 
 ## [0.1.0] - 2026-03-10
 
