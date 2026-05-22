@@ -23,9 +23,9 @@ EMERALD UI.
 
 ```mermaid
 %%{init: {"flowchart": {"nodeSpacing": 25, "rankSpacing": 35, "curve": "basis"}, "themeVariables": {"fontSize": "12px"}}}%%
-flowchart LR
+flowchart TB
     subgraph ONE["🟢 OpenNebula Front-End"]
-        direction TB
+        direction LR
         ACT["onevm create<br/>onevm nic-attach<br/>oneimage create<br/>onevnet create"]
         HOOK["hook-confirmate-* scripts<br/>fire automatically"]
         LIB["OntologyMapper<br/>ConfirmateClient<br/>TokenManager"]
@@ -34,7 +34,7 @@ flowchart LR
     end
 
     subgraph CF["🔵 Confirmate"]
-        direction TB
+        direction LR
         EV["Evidence Store"]
         AS["Assessment Engine<br/>(Rego policies)"]
         OR["Orchestrator<br/>+ Verdict store"]
