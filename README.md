@@ -22,7 +22,16 @@ EMERALD UI.
 ## How it works
 
 ```mermaid
-%%{init: {"flowchart": {"nodeSpacing": 25, "rankSpacing": 35, "curve": "basis"}, "themeVariables": {"fontSize": "12px"}}}%%
+---
+config:
+  layout: elk
+  flowchart:
+    nodeSpacing: 25
+    rankSpacing: 35
+    curve: basis
+  themeVariables:
+    fontSize: 12px
+---
 flowchart TB
     subgraph ONE["🟢 OpenNebula Front-End"]
         direction LR
