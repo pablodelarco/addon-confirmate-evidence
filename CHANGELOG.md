@@ -7,8 +7,8 @@ All notable changes to addon-confirmate-evidence will be documented in this file
 ### Changed — Clouditor → Confirmate migration
 
 Clouditor has been replaced by its successor [Confirmate](https://github.com/confirmate/confirmate).
-This release migrates the addon end-to-end. See [MIGRATION.md](MIGRATION.md)
-for the gap analysis and ordered plan.
+This release migrates the addon end-to-end. For step-by-step install
+instructions, see [TUTORIAL.md](TUTORIAL.md).
 
 - Library, hooks, templates, config file, and the `hook-*` names renamed
   from `clouditor_*` / `hook-clouditor-*` to `confirmate_*` / `hook-confirmate-*`.
@@ -35,7 +35,7 @@ for the gap analysis and ordered plan.
   `blockStorageIds`; `autoUpdates` → `automaticUpdates`; `publicIp` →
   `internetAccessibleEndpoint`. The `atRestEncryption` field is no longer
   a VM-level property; the algorithm + enabled flag remain in the
-  attached `raw` XML pending the long-term decision in MIGRATION.md OQ-2.
+  attached `raw` XML.
 - NetworkInterface no longer has typed fields for `ip` or
   `accessRestriction.securityGroups`; these move to `labels` (a proto
   `map<string,string>`) so they stay queryable. New

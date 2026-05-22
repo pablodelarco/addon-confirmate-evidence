@@ -9,11 +9,11 @@ with [Confirmate](https://github.com/confirmate/confirmate) (Fraunhofer AISEC)
 toward continuous **EUCS** (EU Cybersecurity Certification Scheme for Cloud
 Services) certification.
 
-> Confirmate is the successor to Clouditor. The addon's repository keeps the
-> historical name `addon-clouditor-evidence` for the time being; everything
-> inside (hooks, library, config) talks to Confirmate. See
-> [MIGRATION.md](MIGRATION.md) for the full Clouditor → Confirmate gap
-> analysis and ordered checklist used for this migration.
+> Confirmate is the successor to Clouditor. Everything in this repo
+> (hooks, library, config) talks to Confirmate.
+>
+> **Looking to install and use this?** Start with [TUTORIAL.md](TUTORIAL.md)
+> — a step-by-step walkthrough from zero to live evidence flowing.
 
 Part of the **EMERALD** project (Evidence Management for Continuous
 Certification as a Service in the Cloud), **Pilot 4**: hybrid cloud-edge
@@ -173,7 +173,7 @@ future release.
 | `<NIC><EXTERNAL>` or non-RFC1918 IP | `internetAccessibleEndpoint` | bool |
 | `<MONITORING>` | `bootLogging.enabled`, `osLogging.enabled` | heuristic |
 | — | `automaticUpdates.enabled` | always `false` (no ONE source) |
-| `<DISK><ENCRYPT>` / `<CIPHER>` | _(in `raw` XML only)_ | See open question in [MIGRATION.md](MIGRATION.md) §5 OQ-2 |
+| `<DISK><ENCRYPT>` / `<CIPHER>` | _(in `raw` XML only)_ | Confirmate's ontology no longer carries at-rest-encryption on the VM level; the algorithm + enabled flag remain available in the attached `raw` XML. |
 
 ### OpenNebula NIC → NetworkInterface
 
@@ -204,8 +204,9 @@ for IP address or security-group membership; both are carried in `labels`
 This addon supplies evidence for the following CIS-based controls
 defined in the EMERALD Pilot 4 (CaixaBank) audit scope. Note that the
 encryption-related controls (CIS 4.3 / 4.4) currently rely on the
-attached `raw` XML rather than a typed at-rest-encryption ontology field —
-see [MIGRATION.md](MIGRATION.md) §5 OQ-2 for the pending design decision.
+attached `raw` XML rather than a typed at-rest-encryption ontology
+field; Confirmate's ontology dropped the typed at-rest-encryption field
+on `VirtualMachine`.
 
 | Control | Description | Evidence Source |
 |---|---|---|
@@ -268,7 +269,7 @@ addon-clouditor-evidence/  (historical name; everything inside is Confirmate)
 ├── tests/                            # Unit tests + smoke test
 ├── examples/                         # Sample evidence JSON payloads
 ├── install.sh / uninstall.sh         # Lifecycle scripts
-└── MIGRATION.md                      # Clouditor → Confirmate gap + plan
+└── TUTORIAL.md                       # Step-by-step install + use guide
 ```
 
 The `demo/` directory still contains the Clouditor-era Docker setup. It has
