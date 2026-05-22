@@ -412,7 +412,7 @@ Test instance values to use in step 2 of Quick Start:
 
 ## Acknowledgments
 
-<img src="https://emerald-he.eu/wp-content/uploads/2023/09/eu-flag.png" alt="EU Flag" width="50" align="left" style="margin-right: 10px;">
+<img src="https://upload.wikimedia.org/wikipedia/commons/b/b7/Flag_of_Europe.svg" alt="EU Flag" width="50" align="left" style="margin-right: 10px;">
 
 This project has received funding from the European Union's Horizon
 Europe research and innovation programme under grant agreement No.
