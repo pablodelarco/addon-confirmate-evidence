@@ -1,3 +1,7 @@
+# Note: in OpenNebula 7.2 the validator accepts "one.vm.detachnic" but the
+# dispatcher uses "one.vm.nicdetach", so this API hook never fires there.
+# Evidence is still collected via the VM-state hook on the post-detach
+# transition; see hook-nic-attach.tmpl for context.
 NAME      = "hook-confirmate-nic-detach"
 TYPE      = api
 COMMAND   = "confirmate_nic_evidence.rb"

@@ -1,3 +1,8 @@
+# Note: in OpenNebula 7.2 the validator accepts "one.vm.attachnic" but the
+# dispatcher uses "one.vm.nicattach", so this API hook never fires there.
+# Evidence is still collected via the VM-state hook on the HOTPLUG_NIC ->
+# RUNNING transition; this template is kept for older ONE versions and as
+# a forward placeholder.
 NAME      = "hook-confirmate-nic-attach"
 TYPE      = api
 COMMAND   = "confirmate_nic_evidence.rb"
