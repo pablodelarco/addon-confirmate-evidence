@@ -22,18 +22,18 @@ EMERALD UI.
 ## How it works
 
 ```mermaid
-%%{init: {"flowchart": {"nodeSpacing": 60, "rankSpacing": 90, "curve": "basis"}, "themeVariables": {"fontSize": "20px"}}}%%
+%%{init: {"flowchart": {"nodeSpacing": 40, "rankSpacing": 55, "curve": "basis"}, "themeVariables": {"fontSize": "15px"}}}%%
 flowchart TB
-    subgraph ONE["🟢 &nbsp;OpenNebula Front-End"]
+    subgraph ONE["🟢 OpenNebula Front-End"]
         direction LR
-        ACT["<b>onevm create</b><br/><b>onevm nic-attach</b><br/><b>oneimage create</b><br/><b>onevnet create</b>"]
+        ACT["onevm create<br/>onevm nic-attach<br/>oneimage create<br/>onevnet create"]
         HOOK["hook-confirmate-* scripts<br/>fire automatically"]
         LIB["OntologyMapper<br/>ConfirmateClient<br/>TokenManager"]
         ACT -->|"state change<br/>or API call"| HOOK
         HOOK --> LIB
     end
 
-    subgraph CF["🔵 &nbsp;Confirmate"]
+    subgraph CF["🔵 Confirmate"]
         direction LR
         EV["Evidence Store"]
         AS["Assessment Engine<br/>(Rego policies)"]
@@ -41,7 +41,7 @@ flowchart TB
         EV --> AS --> OR
     end
 
-    UI["⬜ &nbsp;<b>EMERALD UI</b><br/>compliance dashboard"]
+    UI["⬜ <b>EMERALD UI</b><br/>compliance dashboard"]
 
     LIB ==>|"<b>POST</b> /v1/evidence_store/evidence<br/>OAuth2 Bearer JWT"| EV
     OR ==>|"<b>GET</b> /v1/orchestrator/assessment_results"| UI
