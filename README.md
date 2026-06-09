@@ -83,26 +83,39 @@ seven hooks. ✅ ends with `Installation complete!`.
 
 ### 2. Configure
 
-Edit `/etc/one/confirmate-evidence.conf` — three fields matter:
+Edit `/etc/one/confirmate-evidence.conf`. The shipped file has a **local-testing**
+block (default) and a commented **production template** — pick one.
+
+**Production (Keycloak-fronted EMERALD deployment).** In a real EMERALD pilot the
+Evidence Store, the Orchestrator and Keycloak are separate hosts, and auth is
+issued by **Keycloak**, not Confirmate's embedded OAuth. Ask the platform
+operator for a dedicated service client (`client_id` + `client_secret`) in your
+Keycloak realm, then:
 
 ```yaml
 confirmate:
-  endpoint: "http://CONFIRMATE-HOST:8080"          # 1) your Confirmate URL
+  endpoint: "https://<evidence-store-host>"               # 1) Evidence Store URL (HTTPS)
   auth:
-    enabled: true                                  # 2) true for production
-    token_url: "http://CONFIRMATE-HOST:8080/v1/auth/token"
-    client_id: "confirmate"                        # 3) OAuth credentials
-    client_secret: "confirmate"
+    enabled: true                                         # 2) required in production
+    token_url: "https://<keycloak-host>/realms/<realm>/protocol/openid-connect/token"
+    client_id: "<keycloak-service-client-id>"             # 3) from the platform operator
+    client_secret: "<keycloak-service-client-secret>"     #    (prefer a secret store)
+  # tls:
+  #   ca_file: "/etc/ssl/certs/emerald-ca.pem"            # only if your CA chain needs it
 
 evidence:
   tool_id: "opennebula-addon-confirmate-evidence"
-  target_of_evaluation_id: "PASTE-TOE-UUID-HERE"   # from the EMERALD UI
+  target_of_evaluation_id: "PASTE-TOE-UUID-HERE"          # ToE "Target ID" from the EMERALD UI
   default_region: "eu-south-1"
 
 logging:
   level: "info"
   file: "/var/log/one/confirmate-evidence.log"
 ```
+
+The addon refuses to start unless `target_of_evaluation_id` is a real UUID (the
+all-zeros placeholder only works against a local default orchestrator). For local
+testing values, see [Appendix A](#appendix-a--local-confirmate-for-testing).
 
 ```bash
 sudo chown oneadmin:oneadmin /etc/one/confirmate-evidence.conf
@@ -214,8 +227,9 @@ Each result links back to the originating evidence by ID:
 | `confirmate.auth.token_url` | OAuth2 token endpoint | `http://localhost:8080/v1/auth/token` |
 | `confirmate.auth.client_id` / `client_secret` | OAuth2 credentials | `confirmate` / `confirmate` |
 | `confirmate.auth.static_token` | Pre-issued bearer token (bypass OAuth) | _(empty)_ |
+| `confirmate.tls.ca_file` | Extra CA bundle to trust _in addition_ to system roots (HTTPS); never weakens verification | _(empty)_ |
 | `evidence.tool_id` | Tool identifier in every evidence | `opennebula-addon-confirmate-evidence` |
-| `evidence.target_of_evaluation_id` | ToE UUID from EMERALD UI | _(placeholder)_ |
+| `evidence.target_of_evaluation_id` | ToE UUID from EMERALD UI (real UUID required; placeholder rejected) | _(placeholder)_ |
 | `evidence.default_region` | Geo-location label | `eu-south-1` |
 | `logging.level` | debug / info / warn / error | `info` |
 | `logging.file` | Log file path | `/var/log/one/confirmate-evidence.log` |

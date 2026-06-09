@@ -27,6 +27,13 @@ class OntologyMapper
   # UUID namespace for generating deterministic evidence IDs (UUID v5)
   NAMESPACE_UUID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d'
 
+  # All-zeros ToE: a placeholder the orchestrator rejects with
+  # "target of evaluation not found". Must never be sent.
+  PLACEHOLDER_TOE = '00000000-0000-0000-0000-000000000000'
+
+  # RFC 4122 canonical UUID shape (any version)
+  UUID_FORMAT = /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/i
+
   # @param config [Hash] parsed YAML configuration
   def initialize(config)
     @config = config
@@ -34,10 +41,32 @@ class OntologyMapper
     # In Confirmate the evidence field is `target_of_evaluation_id`. Accept the
     # old `cloud_service_id` key only as a transient back-compat read so an
     # operator who upgrades the addon before editing the config still gets a
-    # working install (with a warning); shape changes happen in the wrap.
+    # working install; shape changes happen in the wrap.
     @target_of_evaluation_id = config.dig('evidence', 'target_of_evaluation_id') \
-      || config.dig('evidence', 'cloud_service_id') \
-      || '00000000-0000-0000-0000-000000000000'
+      || config.dig('evidence', 'cloud_service_id')
+
+    # Fail fast on a missing or malformed ToE: those can never be accepted by
+    # any orchestrator. Without this the addon would POST evidence that is
+    # silently rejected, and because each hook swallows errors and exits 0 the
+    # operator would never see why.
+    if @target_of_evaluation_id.nil? || @target_of_evaluation_id.empty? \
+       || !@target_of_evaluation_id.match?(UUID_FORMAT)
+      raise "evidence.target_of_evaluation_id is unset or not a UUID " \
+            "(#{@target_of_evaluation_id.inspect}). Paste the real ToE UUID " \
+            "from the EMERALD UI into confirmate-evidence.conf."
+    end
+
+    # The all-zeros UUID is the shipped placeholder. It is a *valid* ToE only
+    # against a local orchestrator started with --create-default-target-of-
+    # evaluation; against any real deployment the orchestrator rejects it. Warn
+    # loudly (stderr is captured into the hook log) so an operator who forgot to
+    # set it understands why every evidence is being rejected.
+    if @target_of_evaluation_id == PLACEHOLDER_TOE
+      warn 'confirmate-evidence: WARNING evidence.target_of_evaluation_id is the ' \
+           'all-zeros placeholder; this only works against a local default ' \
+           'orchestrator. Set the real ToE UUID for any real deployment.'
+    end
+
     @default_region = config.dig('evidence', 'default_region') || 'eu-south-1'
   end
 
@@ -147,20 +176,19 @@ class OntologyMapper
     regtime = text(img, 'REGTIME')
     creation_time = epoch_to_rfc3339(regtime)
 
-    # Check if image is public
+    # OpenNebula marks an image usable by other users via PERMISSIONS/OTHER_U.
+    # confirmate.ontology.v1.VMImage has no `publicAccess` field (that lives on
+    # FileStorage/ObjectStorage), so emit it as a label: queryable, and never an
+    # unknown field the Evidence Store could reject.
     permissions = img.elements['PERMISSIONS']
-    public_access = false
-    if permissions
-      other_use = text(permissions, 'OTHER_U')
-      public_access = (other_use == '1')
-    end
+    public_access = permissions ? (text(permissions, 'OTHER_U') == '1') : false
 
     resource = {
       'vmImage' => {
         'id' => "one-image-#{img_id}",
         'name' => img_name,
         'creationTime' => creation_time,
-        'publicAccess' => public_access
+        'labels' => { 'publicAccess' => public_access.to_s }
       }
     }
 

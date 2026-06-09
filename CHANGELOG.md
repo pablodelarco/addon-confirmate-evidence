@@ -2,6 +2,49 @@
 
 All notable changes to addon-confirmate-evidence will be documented in this file.
 
+## [Unreleased] — Production readiness (Keycloak + HTTPS)
+
+Hardening for a real EMERALD deployment, where the Evidence Store, Orchestrator
+and Keycloak are separate HTTPS hosts and auth is issued by **Keycloak** (not
+Confirmate's embedded OAuth). The OAuth2 client_credentials protocol and the
+HTTPS request path were already correct; these changes are configuration,
+defensive guards, and docs.
+
+### Added
+- `confirmate.tls.ca_file` config key: trust an extra CA bundle **in addition**
+  to the host's system roots, for OpenNebula front-ends whose trust store lacks
+  the CA that signed the Confirmate/Keycloak certificates. Certificate
+  verification (`VERIFY_PEER`) is never weakened. Wired into both the Evidence
+  Store client and the token request.
+- Fail-fast validation of `evidence.target_of_evaluation_id`: a missing or
+  non-UUID value now raises with a clear message instead of silently POSTing
+  evidence the orchestrator rejects. The all-zeros placeholder is allowed (it is
+  a valid ToE against a local `--create-default-target-of-evaluation`
+  orchestrator) but logs a loud warning.
+- Config file now ships a clearly-labeled **local-testing** block plus a
+  commented **production template** (Keycloak token endpoint shape). README gains
+  a Keycloak-fronted production configuration section.
+
+### Changed
+- De-staled `token_manager.rb` docs: the token endpoint is an OpenID Connect
+  provider (Keycloak in production, Confirmate's embedded server locally), not
+  specifically "Confirmate's embedded OAuth server".
+
+### Fixed
+- `vmImage` evidence no longer sends `publicAccess`: checked against the current
+  upstream spec (`core/api/evidence/openapi.yaml`), `publicAccess` exists only on
+  `FileStorage`/`ObjectStorage`, not on `confirmate.ontology.v1.VMImage`. The
+  OpenNebula `PERMISSIONS/OTHER_U` flag is now emitted as a label
+  (`vmImage.labels.publicAccess`), so a strict Evidence Store cannot reject image
+  evidence for an unknown field. VM, NetworkInterface and VirtualNetwork field
+  names were re-verified against the same spec and need no changes.
+
+### Known
+- `OntologyMapper#map_security_group` (not wired to any hook) emits an
+  `inboundRules` field that the current `NetworkSecurityGroup` schema does not
+  define. Dead code today; rewrite against the live schema before wiring an NSG
+  hook.
+
 ## [0.2.0] - 2026-05-21
 
 ### Changed — Clouditor → Confirmate migration

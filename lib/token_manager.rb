@@ -2,13 +2,16 @@
 # TokenManager - OAuth2 token management for Confirmate API
 # =============================================================================
 # Obtains and caches bearer tokens via the OAuth 2.0 client_credentials
-# grant against Confirmate's embedded OAuth server (or any compatible IdP).
+# grant against an OpenID Connect provider. In production (EMERALD Pilot 4)
+# this is Keycloak; for local testing it is Confirmate's embedded OAuth
+# server. Any RFC 6749 compatible token endpoint works.
 # Automatically refreshes tokens before expiry. Thread-safe.
 #
 # Part of addon-confirmate-evidence (EMERALD project)
 # =============================================================================
 
 require 'net/http'
+require 'openssl'
 require 'uri'
 require 'json'
 require 'base64'
@@ -50,6 +53,7 @@ class TokenManager
     @client_id = auth['client_id']
     @client_secret = auth['client_secret']
     @static_token = auth['static_token']
+    @ca_file = config.dig('confirmate', 'tls', 'ca_file')
   end
 
   # Returns a valid bearer token, refreshing if necessary.
@@ -93,6 +97,7 @@ class TokenManager
     uri = URI.parse(@token_url)
     http = Net::HTTP.new(uri.host, uri.port)
     http.use_ssl = (uri.scheme == 'https')
+    apply_ca_file(http)
     http.open_timeout = 10
     http.read_timeout = 10
 
@@ -126,5 +131,18 @@ class TokenManager
   rescue StandardError => e
     @logger.error("TokenManager: #{e.message}")
     raise
+  end
+
+  # When confirmate.tls.ca_file is configured, trust that CA bundle IN ADDITION
+  # to the host's system roots, so the token request to an HTTPS IdP (Keycloak)
+  # succeeds on hosts whose default trust store lacks the signing CA.
+  # Certificate verification (VERIFY_PEER) is never weakened.
+  def apply_ca_file(http)
+    return unless http.use_ssl? && @ca_file && !@ca_file.empty?
+
+    store = OpenSSL::X509::Store.new
+    store.set_default_paths
+    store.add_file(@ca_file)
+    http.cert_store = store
   end
 end

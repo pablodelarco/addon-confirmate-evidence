@@ -49,13 +49,38 @@ class TestOntologyMapper < Minitest::Test
   end
 
   def test_target_of_evaluation_id_back_compat_with_old_key
+    legacy_uuid = 'aaaaaaaa-1111-4222-8333-444444444444'
     config = {
-      'evidence' => { 'tool_id' => 't', 'cloud_service_id' => 'legacy-uuid' }
+      'evidence' => { 'tool_id' => 't', 'cloud_service_id' => legacy_uuid }
     }
     mapper = OntologyMapper.new(config)
     evidence = mapper.map_vm(File.read(fixture('vm_template.xml')))
-    assert_equal 'legacy-uuid', evidence['targetOfEvaluationId'],
+    assert_equal legacy_uuid, evidence['targetOfEvaluationId'],
                  'Operator who upgrades the addon before editing the config should still get a working install'
+  end
+
+  def test_placeholder_target_of_evaluation_id_is_allowed_with_warning
+    # The all-zeros UUID is a valid ToE against a local default orchestrator, so
+    # it must NOT hard-fail; it only warns.
+    mapper = nil
+    _out, err = capture_io do
+      mapper = OntologyMapper.new('evidence' => { 'target_of_evaluation_id' => '00000000-0000-0000-0000-000000000000' })
+    end
+    refute_nil mapper
+    assert_match(/placeholder/i, err)
+  end
+
+  def test_missing_target_of_evaluation_id_is_rejected
+    assert_raises(RuntimeError) do
+      OntologyMapper.new('evidence' => { 'tool_id' => 't' })
+    end
+  end
+
+  def test_malformed_target_of_evaluation_id_is_rejected
+    # A non-UUID value can never be accepted by any orchestrator -> fail fast.
+    assert_raises(RuntimeError) do
+      OntologyMapper.new('evidence' => { 'target_of_evaluation_id' => 'not-a-uuid' })
+    end
   end
 
   # --- VM mapping ---
@@ -180,10 +205,13 @@ class TestOntologyMapper < Minitest::Test
     assert_match(/^\d{4}-\d{2}-\d{2}T/, img['creationTime'])
   end
 
-  def test_map_image_not_public
+  def test_map_image_public_access_is_a_label_not_a_typed_field
+    # confirmate.ontology.v1.VMImage has no `publicAccess` field; it is emitted
+    # as a label so the Evidence Store never sees an unknown field.
     evidence = @mapper.map_image(File.read(fixture('image_template.xml')))
     img = evidence['resource']['vmImage']
-    assert_equal false, img['publicAccess']
+    refute img.key?('publicAccess'), 'publicAccess is not a VMImage ontology field'
+    assert_equal 'false', img['labels']['publicAccess']
   end
 
   # --- Determinism and serialization ---

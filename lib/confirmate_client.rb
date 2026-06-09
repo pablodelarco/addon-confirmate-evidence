@@ -8,6 +8,7 @@
 # =============================================================================
 
 require 'net/http'
+require 'openssl'
 require 'uri'
 require 'json'
 require 'logger'
@@ -36,6 +37,7 @@ class ConfirmateClient
     @config = config
     @logger = logger || create_logger(config)
     @endpoint = config.dig('confirmate', 'endpoint') || 'http://localhost:8080'
+    @ca_file = config.dig('confirmate', 'tls', 'ca_file')
     @token_manager = TokenManager.new(config, @logger)
   end
 
@@ -99,6 +101,7 @@ class ConfirmateClient
     uri = URI.parse("#{@endpoint}#{EVIDENCE_PATH}")
     http = Net::HTTP.new(uri.host, uri.port)
     http.use_ssl = (uri.scheme == 'https')
+    apply_ca_file(http)
     http.open_timeout = 10
     http.read_timeout = 30
 
@@ -109,6 +112,19 @@ class ConfirmateClient
     request.body = JSON.generate(evidence)
 
     http.request(request)
+  end
+
+  # When confirmate.tls.ca_file is configured, trust that CA bundle IN ADDITION
+  # to the host's system roots (some OpenNebula front-ends lack the CA that
+  # signed the Confirmate/Keycloak certificates). Certificate verification
+  # (VERIFY_PEER, the Net::HTTP default) is never weakened.
+  def apply_ca_file(http)
+    return unless http.use_ssl? && @ca_file && !@ca_file.empty?
+
+    store = OpenSSL::X509::Store.new
+    store.set_default_paths   # keep the host's default trust roots
+    store.add_file(@ca_file)  # plus the configured CA
+    http.cert_store = store
   end
 
   # Creates a logger instance from configuration.
