@@ -79,7 +79,22 @@ begin
 
   # Map VM XML to Confirmate ontology
   mapper = OntologyMapper.new(config)
-  vm_evidence = mapper.map_vm(template_xml)
+
+  # Fetch the rules of the security groups referenced by the VM's NICs so the
+  # mapper can compute SSH/RDP exposure (CIS 9.2/9.3). Best-effort: any failure
+  # just skips those labels rather than blocking evidence. SG ids are coerced to
+  # integers before shelling out (no command injection).
+  sg_xml_by_id = {}
+  begin
+    OntologyMapper.security_group_ids(template_xml).each do |sgid|
+      out = `onesecgroup show #{sgid.to_i} -x 2>/dev/null`
+      sg_xml_by_id[sgid] = out if out && !out.strip.empty?
+    end
+  rescue StandardError => e
+    logger.warn("Could not fetch security groups for SSH/RDP check: #{e.message}")
+  end
+
+  vm_evidence = mapper.map_vm(template_xml, sg_xml_by_id: sg_xml_by_id)
 
   # Also extract and send NIC evidence for each network interface
   nic_evidences = mapper.map_nics(template_xml)

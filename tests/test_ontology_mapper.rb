@@ -167,6 +167,58 @@ class TestOntologyMapper < Minitest::Test
     assert evidence['resource']['virtualMachine']['raw'],     'raw must be on the ontology resource'
   end
 
+  # --- CXB OpenNebula custom-control labels (CIS 4.3/4.4/9.2/9.3) ---
+
+  def test_map_vm_has_disk_and_public_ip_labels
+    vm = @mapper.map_vm(File.read(fixture('vm_template.xml')))['resource']['virtualMachine']
+    assert vm['labels'].key?('diskEncryption'), 'CIS 4.3 vmdisk_encryption label'
+    assert vm['labels'].key?('publicIp'),       'CIS 4.4 public_ip_adress label'
+    assert_includes %w[true false], vm['labels']['diskEncryption']
+    # publicIp mirrors internetAccessibleEndpoint
+    assert_equal vm['internetAccessibleEndpoint'].to_s, vm['labels']['publicIp']
+    # ssh/rdp labels are omitted unless security-group data is supplied
+    refute vm['labels'].key?('sshRestricted')
+    refute vm['labels'].key?('rdpRestricted')
+  end
+
+  def test_security_group_ids_extracted_from_vm
+    ids = OntologyMapper.security_group_ids(File.read(fixture('vm_template.xml')))
+    # vm_template.xml NIC carries SECURITY_GROUPS "0,1"
+    assert_includes ids, '0'
+    assert_includes ids, '1'
+  end
+
+  def test_ssh_rdp_not_restricted_when_sg_allows_all_inbound
+    open_sg = '<SECURITY_GROUP><TEMPLATE><RULE><PROTOCOL>ALL</PROTOCOL>' \
+              '<RULE_TYPE>INBOUND</RULE_TYPE></RULE></TEMPLATE></SECURITY_GROUP>'
+    ids = OntologyMapper.security_group_ids(File.read(fixture('vm_template.xml')))
+    sg_map = ids.each_with_object({}) { |i, h| h[i] = open_sg }
+    vm = @mapper.map_vm(File.read(fixture('vm_template.xml')), sg_xml_by_id: sg_map)['resource']['virtualMachine']
+    assert_equal 'false', vm['labels']['sshRestricted'], 'all-inbound SG exposes SSH'
+    assert_equal 'false', vm['labels']['rdpRestricted'], 'all-inbound SG exposes RDP'
+  end
+
+  def test_ssh_rdp_restricted_when_only_https_open
+    https_only = '<SECURITY_GROUP><TEMPLATE><RULE><PROTOCOL>TCP</PROTOCOL>' \
+                 '<RANGE>443</RANGE><RULE_TYPE>INBOUND</RULE_TYPE></RULE></TEMPLATE></SECURITY_GROUP>'
+    ids = OntologyMapper.security_group_ids(File.read(fixture('vm_template.xml')))
+    sg_map = ids.each_with_object({}) { |i, h| h[i] = https_only }
+    vm = @mapper.map_vm(File.read(fixture('vm_template.xml')), sg_xml_by_id: sg_map)['resource']['virtualMachine']
+    assert_equal 'true', vm['labels']['sshRestricted'], 'only 443 open -> SSH restricted'
+    assert_equal 'true', vm['labels']['rdpRestricted'], 'only 443 open -> RDP restricted'
+  end
+
+  def test_ssh_open_but_from_restricted_source_is_still_restricted
+    # An inbound SSH rule limited to a specific NETWORK_ID is not "from internet".
+    restricted = '<SECURITY_GROUP><TEMPLATE><RULE><PROTOCOL>TCP</PROTOCOL>' \
+                 '<RANGE>22</RANGE><RULE_TYPE>INBOUND</RULE_TYPE><NETWORK_ID>3</NETWORK_ID>' \
+                 '</RULE></TEMPLATE></SECURITY_GROUP>'
+    ids = OntologyMapper.security_group_ids(File.read(fixture('vm_template.xml')))
+    sg_map = ids.each_with_object({}) { |i, h| h[i] = restricted }
+    vm = @mapper.map_vm(File.read(fixture('vm_template.xml')), sg_xml_by_id: sg_map)['resource']['virtualMachine']
+    assert_equal 'true', vm['labels']['sshRestricted'], 'SSH limited to a network is restricted'
+  end
+
   # --- NIC mapping ---
 
   def test_map_nics_count

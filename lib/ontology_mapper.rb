@@ -83,7 +83,11 @@ class OntologyMapper
   #
   # @param xml_str [String] OpenNebula VM XML (decoded from Base64)
   # @return [Hash] evidence payload ready for ConfirmateClient#store_evidence
-  def map_vm(xml_str)
+  # @param xml_str [String] OpenNebula VM XML (decoded from Base64)
+  # @param sg_xml_by_id [Hash] optional {sgId => `onesecgroup show -x` XML} so
+  #   the mapper can compute SSH/RDP exposure (CIS 9.2/9.3). When empty, the
+  #   sshRestricted/rdpRestricted labels are omitted.
+  def map_vm(xml_str, sg_xml_by_id: {})
     doc = REXML::Document.new(xml_str)
     vm = doc.root
 
@@ -105,6 +109,19 @@ class OntologyMapper
     # Internet-accessible if any NIC is reachable from outside (was publicIp)
     has_public_ip = collect_elements(vm, 'TEMPLATE/NIC').any? { |nic| public_nic?(nic) }
 
+    # CXB OpenNebula custom controls (CIS). Computed booleans are emitted as
+    # labels so the custom metrics can evaluate them; the raw XML stays attached
+    # for ground-truth audit.
+    labels = {
+      'diskEncryption' => disk_encrypted?(vm).to_s,  # CIS 4.3 vmdisk_encryption
+      'publicIp' => has_public_ip.to_s               # CIS 4.4 public_ip_adress
+    }
+    unless sg_xml_by_id.nil? || sg_xml_by_id.empty?
+      inbound = nic_security_group_ids(vm).flat_map { |id| parse_inbound_rules(sg_xml_by_id[id]) }
+      labels['sshRestricted'] = (!port_open_from_internet?(inbound, 22)).to_s    # CIS 9.2
+      labels['rdpRestricted'] = (!port_open_from_internet?(inbound, 3389)).to_s  # CIS 9.3
+    end
+
     resource = {
       'virtualMachine' => {
         'id' => "one-vm-#{vm_id}",
@@ -116,11 +133,32 @@ class OntologyMapper
         'bootLogging' => { 'enabled' => logging_enabled?(vm) },
         'osLogging' => { 'enabled' => logging_enabled?(vm) },
         'automaticUpdates' => { 'enabled' => false },
-        'internetAccessibleEndpoint' => has_public_ip
+        'internetAccessibleEndpoint' => has_public_ip,
+        'labels' => labels
       }
     }
 
     wrap_evidence("vm-#{vm_id}", resource, xml_str)
+  end
+
+  # Returns the unique Security Group IDs referenced by a VM's NICs. The VM hook
+  # uses this to know which security groups to fetch (`onesecgroup show -x`) and
+  # pass back via map_vm's sg_xml_by_id, so SSH/RDP exposure can be computed.
+  #
+  # @param vm_xml_str [String] OpenNebula VM XML
+  # @return [Array<String>] unique SG id strings
+  def self.security_group_ids(vm_xml_str)
+    doc = REXML::Document.new(vm_xml_str)
+    ids = []
+    doc.root.each_element('TEMPLATE/NIC') do |nic|
+      sg = nic.elements['SECURITY_GROUPS']&.text
+      next if sg.nil? || sg.empty?
+
+      sg.split(',').each { |s| ids << s.strip }
+    end
+    ids.reject(&:empty?).uniq
+  rescue StandardError
+    []
   end
 
   # Maps NIC elements from a VM XML to NetworkInterface evidence payloads.
@@ -391,5 +429,80 @@ class OntologyMapper
     results = []
     element.each_element(xpath) { |el| results << el }
     results
+  end
+
+  # Unique Security Group IDs referenced by this VM's NICs.
+  def nic_security_group_ids(vm)
+    ids = []
+    collect_elements(vm, 'TEMPLATE/NIC').each do |nic|
+      sg = text(nic, 'SECURITY_GROUPS')
+      next if sg.nil? || sg.empty?
+
+      sg.split(',').each { |s| ids << s.strip }
+    end
+    ids.reject(&:empty?).uniq
+  end
+
+  # True if the VM has at least one disk and every disk is encrypted (CIS 4.3).
+  # The exact OpenNebula attribute can vary by setup; a non-empty, non-negative
+  # ENCRYPTION (or ENCRYPT) value counts as encrypted. The raw XML is attached
+  # so an assessor can verify the ground truth regardless.
+  def disk_encrypted?(vm)
+    disks = collect_elements(vm, 'TEMPLATE/DISK')
+    return false if disks.empty?
+
+    disks.all? do |d|
+      v = (text(d, 'ENCRYPTION') || text(d, 'ENCRYPT') || '').strip.downcase
+      !v.empty? && !%w[no none 0 false].include?(v)
+    end
+  end
+
+  # Parses the INBOUND rules from an `onesecgroup show -x` XML string into a list
+  # of {protocol, range, restricted_source} hashes.
+  def parse_inbound_rules(sg_xml)
+    return [] if sg_xml.nil? || sg_xml.strip.empty?
+
+    doc = REXML::Document.new(sg_xml)
+    rules = []
+    REXML::XPath.each(doc, '//RULE') do |r|
+      next unless (text(r, 'RULE_TYPE') || '').upcase == 'INBOUND'
+
+      restricted = !(text(r, 'NETWORK_ID').to_s.empty? && text(r, 'IP').to_s.empty?)
+      rules << {
+        'protocol' => (text(r, 'PROTOCOL') || 'ALL').upcase,
+        'range' => text(r, 'RANGE'),
+        'restricted_source' => restricted
+      }
+    end
+    rules
+  rescue StandardError
+    []
+  end
+
+  # True if any inbound rule exposes `port` to an unrestricted source (internet):
+  # protocol ALL or TCP, the port within RANGE (empty RANGE = all ports), and no
+  # source network/IP restriction.
+  def port_open_from_internet?(rules, port)
+    rules.any? do |r|
+      next false if r['restricted_source']
+      next false unless %w[ALL TCP].include?(r['protocol'])
+
+      range_includes?(r['range'], port)
+    end
+  end
+
+  # OpenNebula RANGE is e.g. "22", "22,53,80", "1000:2000", or empty (all ports).
+  def range_includes?(range, port)
+    return true if range.nil? || range.strip.empty?
+
+    range.split(',').any? do |part|
+      part = part.strip
+      if part.include?(':')
+        lo, hi = part.split(':', 2).map(&:to_i)
+        port >= lo && port <= hi
+      else
+        part.to_i == port
+      end
+    end
   end
 end

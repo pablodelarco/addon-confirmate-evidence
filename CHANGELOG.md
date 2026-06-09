@@ -11,6 +11,17 @@ HTTPS request path were already correct; these changes are configuration,
 defensive guards, and docs.
 
 ### Added
+- CXB OpenNebula custom-control evidence (CIS), emitted as `virtualMachine.labels`
+  so custom metrics can evaluate them (raw XML stays attached for audit):
+  `diskEncryption` (CIS 4.3 vmdisk_encryption), `publicIp` (CIS 4.4
+  public_ip_adress), and `sshRestricted` / `rdpRestricted` (CIS 9.2 / 9.3),
+  computed from the VM's NIC security-group inbound rules. The VM hook fetches
+  the referenced security groups via `onesecgroup show -x` (id integer-sanitised,
+  best-effort) and passes them to `map_vm(sg_xml_by_id:)`. New public helper
+  `OntologyMapper.security_group_ids`. The IAM/system-level controls in the CXB
+  catalogue (mfa_enabled 4.5, key_enforcement 6.3, api_keys_rotation 13.1,
+  asset_inventory_enabled 8.5, audit_logging_configurated 8.6) are out of the
+  per-resource hook scope and need a separate collector / Tecnalia coordination.
 - `confirmate.tls.ca_file` config key: trust an extra CA bundle **in addition**
   to the host's system roots, for OpenNebula front-ends whose trust store lacks
   the CA that signed the Confirmate/Keycloak certificates. Certificate
