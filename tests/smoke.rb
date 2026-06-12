@@ -65,7 +65,8 @@ begin
   http.start { http.request(Net::HTTP::Get.new('/')) }
 rescue StandardError => e
   warn "SKIP: Confirmate orchestrator not reachable at #{CONFIRMATE_URL} (#{e.message})."
-  warn '     Start it with: go run ./cmd/orchestrator -- --db-in-memory --create-default-target-of-evaluation'
+  warn '     Start one with the README "Appendix A" recipe:'
+  warn '     go build -o bin/orchestrator ./cmd/orchestrator && ./bin/orchestrator --db-in-memory --create-default-target-of-evaluation'
   exit 0
 end
 

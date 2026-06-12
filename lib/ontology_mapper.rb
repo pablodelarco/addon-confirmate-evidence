@@ -16,7 +16,6 @@
 require 'rexml/document'
 require 'time'
 require 'digest'
-require 'securerandom'
 require 'json'
 
 # Maps OpenNebula resource XML documents to Confirmate ontology JSON structures.
@@ -44,6 +43,9 @@ class OntologyMapper
     # working install; shape changes happen in the wrap.
     @target_of_evaluation_id = config.dig('evidence', 'target_of_evaluation_id') \
       || config.dig('evidence', 'cloud_service_id')
+    # Coerce non-String YAML values (numbers, hashes from typos) so the guard
+    # below reports the curated message instead of a NoMethodError.
+    @target_of_evaluation_id = @target_of_evaluation_id.to_s unless @target_of_evaluation_id.nil?
 
     # Fail fast on a missing or malformed ToE: those can never be accepted by
     # any orchestrator. Without this the addon would POST evidence that is
@@ -82,11 +84,10 @@ class OntologyMapper
   #     available in the attached raw XML.
   #
   # @param xml_str [String] OpenNebula VM XML (decoded from Base64)
-  # @return [Hash] evidence payload ready for ConfirmateClient#store_evidence
-  # @param xml_str [String] OpenNebula VM XML (decoded from Base64)
   # @param sg_xml_by_id [Hash] optional {sgId => `onesecgroup show -x` XML} so
   #   the mapper can compute SSH/RDP exposure (CIS 9.2/9.3). When empty, the
   #   sshRestricted/rdpRestricted labels are omitted.
+  # @return [Hash] evidence payload ready for ConfirmateClient#store_evidence
   def map_vm(xml_str, sg_xml_by_id: {})
     doc = REXML::Document.new(xml_str)
     vm = doc.root
@@ -289,32 +290,6 @@ class OntologyMapper
     wrap_evidence("vnet-#{vnet_id}", resource, xml_str)
   end
 
-  # Maps Security Group rules to a NetworkSecurityGroup evidence payload.
-  #
-  # @param sg_id [String] Security Group ID
-  # @param sg_name [String] Security Group name
-  # @param rules [Array<Hash>] parsed security group rules
-  # @return [Hash] evidence payload
-  def map_security_group(sg_id, sg_name, rules)
-    inbound_rules = rules.select { |r| r['type'] == 'inbound' }.map do |rule|
-      {
-        'portRange' => rule['range'] || "#{rule['port']}-#{rule['port']}",
-        'protocol' => rule['protocol'] || 'TCP',
-        'cidr' => rule['network'] || '0.0.0.0/0'
-      }
-    end
-
-    resource = {
-      'networkSecurityGroup' => {
-        'id' => "one-sg-#{sg_id}",
-        'name' => sg_name,
-        'inboundRules' => inbound_rules
-      }
-    }
-
-    wrap_evidence("sg-#{sg_id}", resource, nil)
-  end
-
   private
 
   # Wraps a mapped ontology resource into a complete Confirmate Evidence payload.
@@ -356,26 +331,23 @@ class OntologyMapper
     }
   end
 
-  # Generates a deterministic UUID v5 from a resource key and timestamp.
-  # Ensures idempotency: same resource + same second = same evidence ID.
+  # Generates a deterministic UUID v5 (RFC 4122 §4.3) from a resource key and
+  # timestamp. Ensures idempotency: same resource + same second = same evidence
+  # ID, on every host. Implemented with stdlib SHA1 only — Digest::UUID is an
+  # ActiveSupport extension absent from stock Ruby, and depending on it made
+  # the generated IDs differ between hosts with and without it.
   #
   # @param resource_key [String] e.g., "vm-42"
   # @param timestamp [String] RFC 3339 timestamp
-  # @return [String] UUID string
+  # @return [String] UUID v5 string
   def generate_uuid(resource_key, timestamp)
     name = "#{resource_key}:#{timestamp}"
-    Digest::UUID.uuid_v5(NAMESPACE_UUID, name)
-  rescue NoMethodError, LoadError, NameError
-    # Fallback when Digest::UUID is unavailable (e.g., stock Ruby 2.6):
-    # manual UUID v5 using SHA1, per RFC 4122 §4.3.
-    sha1 = Digest::SHA1.hexdigest("#{NAMESPACE_UUID}:#{name}")
-    [
-      sha1[0..7],
-      sha1[8..11],
-      '5' + sha1[13..15],  # Version 5
-      ((sha1[16..17].to_i(16) & 0x3F) | 0x80).to_s(16).rjust(2, '0') + sha1[18..19],
-      sha1[20..31]
-    ].join('-')
+    ns_bytes = [NAMESPACE_UUID.delete('-')].pack('H*')
+    bytes = Digest::SHA1.digest(ns_bytes + name).bytes[0, 16]
+    bytes[6] = (bytes[6] & 0x0F) | 0x50 # version 5
+    bytes[8] = (bytes[8] & 0x3F) | 0x80 # RFC 4122 variant
+    hex = bytes.map { |b| format('%02x', b) }.join
+    [hex[0, 8], hex[8, 4], hex[12, 4], hex[16, 4], hex[20, 12]].join('-')
   end
 
   # Checks if a NIC has a public (non-RFC1918) IP address.
@@ -384,6 +356,11 @@ class OntologyMapper
   # @return [Boolean] true if NIC has a public IP
   def public_nic?(nic)
     return true if text(nic, 'EXTERNAL')&.upcase == 'YES'
+
+    # A global-unicast IPv6 address is internet-reachable by definition
+    # (OpenNebula exposes it separately from link-local/ULA addresses).
+    ip6_global = text(nic, 'IP6_GLOBAL')
+    return true if ip6_global && !ip6_global.empty?
 
     ip = text(nic, 'IP')
     return false if ip.nil? || ip.empty?

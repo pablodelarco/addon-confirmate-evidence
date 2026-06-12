@@ -253,7 +253,7 @@ Each result links back to the originating evidence by ID:
 | — | `automaticUpdates.enabled` | always `false` (no ONE source) |
 | `<DISK><ENCRYPTION>` or `<ENCRYPT>` (all disks) | `labels.diskEncryption` | CIS 4.3, computed bool: `"true"` only when every disk carries an encryption attribute (`CIPHER` rides in `raw` only, not evaluated) |
 | `<NIC><EXTERNAL>` or non-RFC1918 IP | `labels.publicIp` | CIS 4.4, mirrors `internetAccessibleEndpoint` |
-| `<NIC><SECURITY_GROUPS>` inbound rules | `labels.sshRestricted`, `labels.rdpRestricted` | CIS 9.2 / 9.3: the VM/NIC hooks fetch the groups via `onesecgroup show -x`; the labels are emitted only when **every** referenced group could be read (a partial read could hide the exposing rule), and say whether port 22/3389 is reachable from an unrestricted source |
+| `<NIC><SECURITY_GROUPS>` inbound rules | `labels.sshRestricted`, `labels.rdpRestricted` | CIS 9.2 / 9.3: the VM/NIC hooks fetch the groups via `onesecgroup show -x`; the labels are emitted only when **every** referenced group could be read (a partial read could hide the exposing rule), and are `"true"` when access is restricted (port 22/3389 NOT reachable from an unrestricted source) |
 
 ### NIC → NetworkInterface
 
@@ -292,7 +292,7 @@ unknown field.
 |---|---|---|
 | CIS 4.3 | VM Disk Encryption | `DISK/ENCRYPTION`\|`ENCRYPT` (all disks) → `virtualMachine.labels.diskEncryption`; raw XML attached (`CIPHER` carried in raw only) |
 | CIS 4.4 | No Public IP on Compute Instances | `NIC/EXTERNAL`, IP-range check → `internetAccessibleEndpoint` + `labels.publicIp` |
-| CIS 8.3 | Storage Not Publicly Accessible | `IMAGE/PERMISSIONS/OTHER_U` → `vmImage.labels.publicAccess` |
+| CIS 8.3 | Storage Not Publicly Accessible | Approximation (not in the CXB OpenNebula metric set): `IMAGE/PERMISSIONS/OTHER_U` → `vmImage.labels.publicAccess` |
 | CIS 8.5 | Cloud Asset Inventory Enabled | Partial: continuous per-resource evidence; full inventory needs a system-level collector |
 | CIS 8.6 | Cloud Audit Logging Configured | Partial: `MONITORING` presence → `bootLogging`/`osLogging`; oned-level audit config needs a system-level collector |
 | CIS 9.2 | SSH Access Restricted | `NIC/SECURITY_GROUPS` inbound rules (`onesecgroup show -x`) → `labels.sshRestricted` |
@@ -359,8 +359,9 @@ sudo -u oneadmin onehook log --since $(date -d '1 hour ago' +%m/%d) | head -30
 curl -sS -o /dev/null -w "%{http_code}\n" http://CONFIRMATE-HOST:8080/v1/auth/certs   # → 200
 
 # Tests
-ruby tests/test_ontology_mapper.rb   # 33 unit tests
+ruby tests/test_ontology_mapper.rb   # 36 unit tests
 ruby tests/test_token_manager.rb     #  6 unit tests
+ruby tests/test_confirmate_client.rb #  7 unit tests (retry/status contract, no network)
 ruby tests/smoke.rb                  # end-to-end POST (skips cleanly if no Confirmate)
 
 # Uninstall

@@ -36,7 +36,8 @@ class ConfirmateClient
   def initialize(config, logger = nil)
     @config = config
     @logger = logger || create_logger(config)
-    @endpoint = config.dig('confirmate', 'endpoint') || 'http://localhost:8080'
+    # Strip trailing slashes so "https://host/" doesn't yield "//v1/..." paths
+    @endpoint = (config.dig('confirmate', 'endpoint') || 'http://localhost:8080').sub(%r{/+\z}, '')
     @ca_file = config.dig('confirmate', 'tls', 'ca_file')
     @token_manager = TokenManager.new(config, @logger)
   end
@@ -80,6 +81,17 @@ class ConfirmateClient
         when Net::HTTPUnauthorized
           @logger.warn("Token expired, refreshing and retrying (attempt #{attempt}/#{MAX_RETRIES})")
           @token_manager = TokenManager.new(@config, @logger)
+        when Net::HTTPConflict
+          # 409 = deterministic-UUID dedup: this exact evidence is already
+          # stored. That is success for our purposes, not an error.
+          @logger.info("Evidence #{evidence_id} already stored (HTTP 409), skipping")
+          return {}
+        when Net::HTTPClientError
+          # Any other 4xx is deterministic (bad payload, unknown ToE, ...);
+          # retrying cannot change the outcome, so fail fast.
+          last_error = RuntimeError.new("HTTP #{response.code}: #{response.body.to_s[0, 300]}")
+          @logger.error("Evidence #{evidence_id} rejected (HTTP #{response.code}), not retrying: #{response.body}")
+          break
         else
           @logger.warn("HTTP #{response.code} from Evidence Store (attempt #{attempt}/#{MAX_RETRIES}): #{response.body}")
         end

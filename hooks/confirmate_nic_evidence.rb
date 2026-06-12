@@ -38,24 +38,29 @@ end
 $LOAD_PATH << RUBY_LIB_LOCATION
 $LOAD_PATH << HOOKS_LIB
 
-require 'base64'
-require 'yaml'
-require 'logger'
-require 'rexml/document'
-require 'confirmate_client'
-require 'ontology_mapper'
+# Never block OpenNebula operations: if the addon's dependencies cannot
+# be loaded (broken install, missing lib), log to stderr and exit 0.
+begin
+  require 'base64'
+  require 'yaml'
+  require 'logger'
+  require 'rexml/document'
+  require 'confirmate_client'
+  require 'ontology_mapper'
+rescue ScriptError, StandardError => e
+  $stderr.puts "confirmate_nic_evidence: failed to load dependencies: #{e.message}"
+  exit 0
+end
 
 begin
-  # Read API hook data from STDIN or ARGV
-  if !$stdin.tty? && !$stdin.closed?
-    raw_input = $stdin.read
-  else
-    raw_input = ARGV[0]
-  end
+  # Read API hook data from STDIN, falling back to ARGV when stdin is
+  # absent OR empty (an empty pipe must not lose the ARGV data).
+  raw_input = (!$stdin.tty? && !$stdin.closed? ? $stdin.read : nil)
+  raw_input = ARGV[0] if raw_input.nil? || raw_input.strip.empty?
 
   if raw_input.nil? || raw_input.empty?
     $stderr.puts 'confirmate_nic_evidence: no API data received'
-    exit 1
+    exit 0 # never block OpenNebula, even on misconfigured invocations
   end
 
   # Decode Base64-encoded API hook XML

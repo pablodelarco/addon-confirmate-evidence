@@ -39,10 +39,14 @@ if command -v onehook &>/dev/null; then
         "hook-confirmate-net-create"
     )
     for name in "${HOOK_NAMES[@]}"; do
-        hook_id=$(onehook list --no-header 2>/dev/null | grep "$name" | awk '{print $1}')
-        if [ -n "$hook_id" ]; then
-            echo -n "  Deleting $name (ID: $hook_id)... "
-            onehook delete "$hook_id" 2>/dev/null && echo "done" || echo "FAILED"
+        # Exact NAME match (column 2), one ID per line; never pass a multi-line
+        # blob to `onehook delete`.
+        hook_ids=$(onehook list --no-header 2>/dev/null | awk -v n="$name" '$2 == n {print $1}')
+        if [ -n "$hook_ids" ]; then
+            for hook_id in $hook_ids; do
+                echo -n "  Deleting $name (ID: $hook_id)... "
+                onehook delete "$hook_id" 2>/dev/null && echo "done" || echo "FAILED"
+            done
         else
             echo "  $name not found, skipping"
         fi
@@ -67,12 +71,21 @@ fi
 
 # Configuration (ask before removing)
 echo "[3/3] Configuration..."
+# The .conf.new backup left by repeated installs is always safe to remove.
+rm -f "$ETC_DIR/confirmate-evidence.conf.new"
+
 if [ -f "$ETC_DIR/confirmate-evidence.conf" ]; then
-    read -p "  Remove configuration file? (y/N) " -n 1 -r
-    echo
+    if [ -t 0 ]; then
+        # `read` returns non-zero on EOF; don't let set -e abort the uninstall.
+        read -p "  Remove configuration file? (y/N) " -n 1 -r || REPLY="n"
+        echo
+    else
+        # Non-interactive run: preserve the config (safe default).
+        REPLY="n"
+        echo "  Non-interactive run: preserving configuration."
+    fi
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         rm -f "$ETC_DIR/confirmate-evidence.conf"
-        rm -f "$ETC_DIR/confirmate-evidence.conf.new"
         echo "  Removed: $ETC_DIR/confirmate-evidence.conf"
     else
         echo "  Configuration preserved at: $ETC_DIR/confirmate-evidence.conf"

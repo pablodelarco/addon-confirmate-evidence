@@ -88,7 +88,7 @@ fi
 echo "[5/5] Registering hooks..."
 if command -v onehook &>/dev/null; then
     for tmpl in "$SCRIPT_DIR"/templates/*.tmpl; do
-        name=$(grep "^NAME" "$tmpl" | sed 's/.*= *"\?\([^"]*\)"\?.*/\1/')
+        name=$(awk -F'"' '/^NAME/ {print $2; exit}' "$tmpl")
         echo -n "  $name... "
 
         # Check if hook already exists

@@ -308,11 +308,39 @@ class TestOntologyMapper < Minitest::Test
     assert_equal 'false', img['labels']['publicAccess']
   end
 
+  # --- VirtualNetwork mapping ---
+
+  def test_map_network_basic
+    xml = '<VNET><ID>9</ID><NAME>backbone</NAME></VNET>'
+    evidence = @mapper.map_network(xml)
+    vnet = evidence['resource']['virtualNetwork']
+    assert_equal 'one-vnet-9', vnet['id']
+    assert_equal 'backbone', vnet['name']
+    assert_equal 'eu-south-1', vnet['geoLocation']['region']
+    assert_equal TOE_UUID, evidence['targetOfEvaluationId']
+  end
+
   # --- Determinism and serialization ---
 
-  def test_evidence_id_is_uuid_v5_shape
+  def test_evidence_id_is_strict_rfc4122_uuid_v5
     evidence = @mapper.map_vm(File.read(fixture('vm_template.xml')))
-    assert_match(/^[0-9a-f-]{36}$/, evidence['id'])
+    # version nibble must be 5, variant must be RFC 4122 (8/9/a/b)
+    assert_match(/\A[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/,
+                 evidence['id'])
+  end
+
+  def test_evidence_id_is_deterministic_for_same_key_and_timestamp
+    a = @mapper.send(:generate_uuid, 'vm-42', '2026-01-01T00:00:00Z')
+    b = @mapper.send(:generate_uuid, 'vm-42', '2026-01-01T00:00:00Z')
+    c = @mapper.send(:generate_uuid, 'vm-42', '2026-01-01T00:00:01Z')
+    assert_equal a, b, 'same resource + same second => same evidence id'
+    refute_equal a, c, 'different timestamp => different evidence id'
+  end
+
+  def test_raw_xml_is_truncated_to_10k_chars
+    big = File.read(fixture('vm_template.xml')).sub('</VM>', "<PAD>#{'x' * 20_000}</PAD></VM>")
+    evidence = @mapper.map_vm(big)
+    assert_equal 10_000, evidence['resource']['virtualMachine']['raw'].length
   end
 
   def test_evidence_is_json_serializable

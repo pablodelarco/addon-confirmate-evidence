@@ -37,23 +37,28 @@ end
 $LOAD_PATH << RUBY_LIB_LOCATION
 $LOAD_PATH << HOOKS_LIB
 
-require 'base64'
-require 'yaml'
-require 'logger'
-require 'confirmate_client'
-require 'ontology_mapper'
+# Never block OpenNebula operations: if the addon's dependencies cannot
+# be loaded (broken install, missing lib), log to stderr and exit 0.
+begin
+  require 'base64'
+  require 'yaml'
+  require 'logger'
+  require 'confirmate_client'
+  require 'ontology_mapper'
+rescue ScriptError, StandardError => e
+  $stderr.puts "confirmate_vm_evidence: failed to load dependencies: #{e.message}"
+  exit 0
+end
 
 begin
-  # Read template from STDIN (ARGUMENTS_STDIN = YES) or from ARGV
-  if !$stdin.tty? && !$stdin.closed?
-    raw_input = $stdin.read
-  else
-    raw_input = ARGV[0]
-  end
+  # Read template from STDIN (ARGUMENTS_STDIN = YES), falling back to ARGV
+  # when stdin is absent OR empty (an empty pipe must not lose the ARGV data).
+  raw_input = (!$stdin.tty? && !$stdin.closed? ? $stdin.read : nil)
+  raw_input = ARGV[0] if raw_input.nil? || raw_input.strip.empty?
 
   if raw_input.nil? || raw_input.empty?
     $stderr.puts 'confirmate_vm_evidence: no template data received'
-    exit 1
+    exit 0 # never block OpenNebula, even on misconfigured invocations
   end
 
   # Decode Base64-encoded XML template

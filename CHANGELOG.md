@@ -14,7 +14,7 @@ defensive guards, and docs.
 - CXB OpenNebula custom-control evidence (CIS), emitted as `virtualMachine.labels`
   so custom metrics can evaluate them (raw XML stays attached for audit):
   `diskEncryption` (CIS 4.3 vmdisk_encryption), `publicIp` (CIS 4.4
-  public_ip_adress), and `sshRestricted` / `rdpRestricted` (CIS 9.2 / 9.3),
+  public_ip_adress — spelling as in the CXB catalogue), and `sshRestricted` / `rdpRestricted` (CIS 9.2 / 9.3),
   computed from the VM's NIC security-group inbound rules. The VM hook fetches
   the referenced security groups via `onesecgroup show -x` (id integer-sanitised,
   best-effort) and passes them to `map_vm(sg_xml_by_id:)`. New public helper
@@ -69,11 +69,31 @@ defensive guards, and docs.
   evidence for an unknown field. VM, NetworkInterface and VirtualNetwork field
   names were re-verified against the same spec and need no changes.
 
-### Known
-- `OntologyMapper#map_security_group` (not wired to any hook) emits an
-  `inboundRules` field that the current `NetworkSecurityGroup` schema does not
-  define. Dead code today; rewrite against the live schema before wiring an NSG
-  hook.
+### Hardening (full-repo scan follow-up)
+- Evidence Store client: trailing slash in `confirmate.endpoint` no longer
+  produces `//v1/...` request paths; HTTP 409 (deterministic-UUID dedup) is
+  treated as "already stored" success; any other 4xx fails fast instead of
+  being retried (retrying a deterministic rejection cannot help); 5xx still
+  retries with backoff. New `tests/test_confirmate_client.rb` pins this
+  retry/status contract with stubbed responses (no network).
+- Evidence IDs are now generated with a strict RFC 4122 §4.3 UUIDv5
+  implementation on Ruby stdlib only. The previous code preferred
+  `Digest::UUID` (an ActiveSupport extension absent from stock Ruby) and fell
+  back to a non-conformant manual digest, so IDs could differ between hosts.
+- ToE guard coerces non-String YAML values before validating, so a typo'd
+  config reports the curated error instead of a `NoMethodError`.
+- NICs with a global-unicast IPv6 address (`IP6_GLOBAL`) are now classified as
+  internet-accessible.
+- All four hooks: dependency `require` failures now log and exit 0 (never
+  block OpenNebula operations), an empty stdin pipe falls back to ARGV, and
+  the no-input-at-all path also exits 0 instead of 1, completing the
+  "every error path exits 0" contract.
+- `uninstall.sh` matches hooks by exact name (no substring multi-ID deletes),
+  survives non-interactive runs, and removes the `.conf.new` leftover;
+  `install.sh` hook-name extraction no longer relies on GNU-only sed syntax.
+- Removed the dead `OntologyMapper#map_security_group` (never wired to a hook;
+  its rule shape did not match the current `NetworkSecurityGroup` schema) and
+  the unused `nic_template.xml` fixture.
 
 ## [0.2.0] - 2026-05-21
 
