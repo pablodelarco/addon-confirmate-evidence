@@ -203,7 +203,13 @@ class OntologyMapper
   #
   # @param xml_str [String] OpenNebula VM XML (decoded from Base64)
   # @return [Array<Hash>] list of evidence payloads, one per NIC
-  def map_nics(xml_str)
+  # @param xml_str [String] OpenNebula VM XML (decoded from Base64)
+  # @param sg_xml_by_id [Hash] optional {sgId => `onesecgroup show -x` XML}.
+  #   When the rules of EVERY security group of a NIC are readable, the NIC
+  #   carries `accessRestriction.l3Firewall` with `restrictedPorts` — the field
+  #   the EMERALD `RestrictSSH` metric evaluates (`== "22"`). Omitted on
+  #   partial/no coverage (same integrity rule as the VM ssh/rdp labels).
+  def map_nics(xml_str, sg_xml_by_id: {})
     doc = REXML::Document.new(xml_str)
     vm = doc.root
 
@@ -221,16 +227,17 @@ class OntologyMapper
       labels['network'] = network_name unless network_name.empty?
       labels['securityGroupIds'] = sg_ids unless sg_ids.empty?
 
-      resource = {
-        'networkInterface' => {
-          'id' => "one-nic-#{vm_id}-#{nic_id}",
-          'name' => "#{network_name}/nic#{nic_id}",
-          'labels' => labels,
-          'internetAccessibleEndpoint' => public_nic?(nic)
-        }
+      nic_resource = {
+        'id' => "one-nic-#{vm_id}-#{nic_id}",
+        'name' => "#{network_name}/nic#{nic_id}",
+        'labels' => labels,
+        'internetAccessibleEndpoint' => public_nic?(nic)
       }
 
-      wrap_evidence("nic-#{vm_id}-#{nic_id}", resource, xml_str)
+      restriction = nic_access_restriction(sg_ids, sg_xml_by_id)
+      nic_resource['accessRestriction'] = restriction if restriction
+
+      wrap_evidence("nic-#{vm_id}-#{nic_id}", { 'networkInterface' => nic_resource }, xml_str)
     end
   end
 
@@ -464,6 +471,33 @@ class OntologyMapper
       v = (text(d, 'ENCRYPTION') || text(d, 'ENCRYPT') || '').strip.downcase
       !v.empty? && !%w[no none 0 false].include?(v)
     end
+  end
+
+  # Builds the NetworkInterface `accessRestriction.l3Firewall` object from the
+  # NIC's security groups, or nil when the rules are unknown (no SGs listed, no
+  # SG data supplied, or any referenced group unreadable — never guess).
+  #
+  # `restrictedPorts` is scoped to SSH for now: the EMERALD `RestrictSSH`
+  # metric checks strict equality `restrictedPorts == "22"`, so emitting a
+  # broader list (e.g. "22,3389") would fail a genuinely compliant NIC. The
+  # RDP state stays available in the VM's `labels.rdpRestricted`.
+  def nic_access_restriction(sg_ids_csv, sg_xml_by_id)
+    return nil if sg_xml_by_id.nil? || sg_xml_by_id.empty?
+
+    ids = sg_ids_csv.to_s.split(',').map(&:strip).reject(&:empty?)
+    return nil if ids.empty?
+
+    parsed = ids.map { |id| parse_inbound_rules(sg_xml_by_id[id]) }
+    return nil if parsed.any?(&:nil?) # partial coverage -> unknown, omit
+
+    inbound = parsed.flatten
+    ssh_restricted = !port_open_from_internet?(inbound, 22)
+    {
+      'l3Firewall' => {
+        'enabled' => true,
+        'restrictedPorts' => ssh_restricted ? '22' : ''
+      }
+    }
   end
 
   # Parses the INBOUND rules from an `onesecgroup show -x` XML string into a list

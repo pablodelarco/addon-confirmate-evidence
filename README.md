@@ -265,6 +265,7 @@ Each result links back to the originating evidence by ID:
 | `<IP>` | `labels.ip` |
 | `<NETWORK>` | `labels.network` |
 | `<SECURITY_GROUPS>` | `labels.securityGroupIds` |
+| `<SECURITY_GROUPS>` inbound rules | `accessRestriction.l3Firewall.restrictedPorts` (`"22"` when SSH is blocked from the internet; emitted only with full SG coverage) — the field the EMERALD `RestrictSSH` metric evaluates |
 
 `NetworkInterface` has no first-class fields for IP or security groups;
 they ride in `labels` (a `map<string,string>`), still queryable by
@@ -295,7 +296,7 @@ unknown field.
 | CIS 8.3 | Storage Not Publicly Accessible | Approximation (not in the CXB OpenNebula metric set): `IMAGE/PERMISSIONS/OTHER_U` → `vmImage.labels.publicAccess` |
 | CIS 8.5 | Cloud Asset Inventory Enabled | Partial: continuous per-resource evidence; full inventory needs a system-level collector |
 | CIS 8.6 | Cloud Audit Logging Configured | Partial: `MONITORING` presence → `bootLogging`/`osLogging`; oned-level audit config needs a system-level collector |
-| CIS 9.2 | SSH Access Restricted | `NIC/SECURITY_GROUPS` inbound rules (`onesecgroup show -x`) → `labels.sshRestricted` |
+| CIS 9.2 | SSH Access Restricted | `NIC/SECURITY_GROUPS` inbound rules (`onesecgroup show -x`) → `labels.sshRestricted` (VM) + `networkInterface.accessRestriction.l3Firewall.restrictedPorts` (EMERALD `RestrictSSH` metric) |
 | CIS 9.3 | RDP Access Restricted | same mechanism, port 3389 → `labels.rdpRestricted` |
 
 ---
@@ -359,7 +360,7 @@ sudo -u oneadmin onehook log --since $(date -d '1 hour ago' +%m/%d) | head -30
 curl -sS -o /dev/null -w "%{http_code}\n" http://CONFIRMATE-HOST:8080/v1/auth/certs   # → 200
 
 # Tests
-ruby tests/test_ontology_mapper.rb   # 36 unit tests
+ruby tests/test_ontology_mapper.rb   # 40 unit tests
 ruby tests/test_token_manager.rb     #  6 unit tests
 ruby tests/test_confirmate_client.rb #  7 unit tests (retry/status contract, no network)
 ruby tests/smoke.rb                  # end-to-end POST (skips cleanly if no Confirmate)

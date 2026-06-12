@@ -92,8 +92,9 @@ begin
 
   vm_evidence = mapper.map_vm(template_xml, sg_xml_by_id: sg_xml_by_id)
 
-  # Also extract and send NIC evidence for each network interface
-  nic_evidences = mapper.map_nics(template_xml)
+  # Also extract and send NIC evidence for each network interface. The SG data
+  # lets each NIC carry accessRestriction.l3Firewall (RestrictSSH metric).
+  nic_evidences = mapper.map_nics(template_xml, sg_xml_by_id: sg_xml_by_id)
 
   # Send VM evidence to Confirmate
   client = ConfirmateClient.new(config, logger)

@@ -69,6 +69,21 @@ defensive guards, and docs.
   evidence for an unknown field. VM, NetworkInterface and VirtualNetwork field
   names were re-verified against the same spec and need no changes.
 
+### Added (EMERALD mini-audit metric binding)
+- NetworkInterface evidence now carries `accessRestriction.l3Firewall`
+  (`enabled`, `restrictedPorts`) computed from the NIC's security-group
+  inbound rules — `restrictedPorts` is `"22"` exactly when SSH is blocked from
+  an unrestricted source, matching the deployed EMERALD `RestrictSSH` metric
+  (security-metrics PR #325), which evaluates
+  `networkInterface.accessRestriction.l3Firewall.restrictedPorts == "22"`.
+  Scoped to SSH on purpose: the metric uses strict string equality, so a
+  broader list ("22,3389") would fail a compliant NIC; RDP state remains in
+  the VM's `labels.rdpRestricted`. Omitted under the same integrity rule as
+  the VM labels (no/partial SG coverage -> unknown -> absent).
+  `VirtualMachinePublicIpDisabled` (same PR) evaluates
+  `virtualMachine.internetAccessibleEndpoint == false`, which the addon
+  already emits unchanged.
+
 ### Hardening (full-repo scan follow-up)
 - Evidence Store client: trailing slash in `confirmate.endpoint` no longer
   produces `//v1/...` request paths; HTTP 409 (deterministic-UUID dedup) is

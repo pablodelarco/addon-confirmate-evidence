@@ -289,6 +289,44 @@ class TestOntologyMapper < Minitest::Test
     refute nic0.key?('accessRestriction'), 'old accessRestriction field must be gone'
   end
 
+  # --- NIC accessRestriction.l3Firewall (EMERALD RestrictSSH metric) ---
+
+  HTTPS_ONLY_SG = '<SECURITY_GROUP><TEMPLATE><RULE><PROTOCOL>TCP</PROTOCOL>' \
+                  '<RANGE>443</RANGE><RULE_TYPE>INBOUND</RULE_TYPE></RULE></TEMPLATE></SECURITY_GROUP>'
+  OPEN_SG = '<SECURITY_GROUP><TEMPLATE><RULE><PROTOCOL>ALL</PROTOCOL>' \
+            '<RULE_TYPE>INBOUND</RULE_TYPE></RULE></TEMPLATE></SECURITY_GROUP>'
+
+  def test_nic_l3firewall_restricted_ports_22_when_ssh_blocked
+    # RestrictSSH evaluates networkInterface.accessRestriction.l3Firewall.restrictedPorts == "22"
+    sg_map = { '0' => HTTPS_ONLY_SG, '1' => HTTPS_ONLY_SG }
+    nic = @mapper.map_nics(File.read(fixture('vm_template.xml')), sg_xml_by_id: sg_map)
+                 .first['resource']['networkInterface']
+    assert_equal '22', nic.dig('accessRestriction', 'l3Firewall', 'restrictedPorts')
+    assert_equal true, nic.dig('accessRestriction', 'l3Firewall', 'enabled')
+  end
+
+  def test_nic_l3firewall_empty_restricted_ports_when_ssh_open
+    sg_map = { '0' => OPEN_SG, '1' => OPEN_SG }
+    nic = @mapper.map_nics(File.read(fixture('vm_template.xml')), sg_xml_by_id: sg_map)
+                 .first['resource']['networkInterface']
+    assert_equal '', nic.dig('accessRestriction', 'l3Firewall', 'restrictedPorts'),
+                 'open SG must not satisfy RestrictSSH (== "22")'
+  end
+
+  def test_nic_access_restriction_omitted_without_sg_data
+    nic = @mapper.map_nics(File.read(fixture('vm_template.xml')))
+                 .first['resource']['networkInterface']
+    refute nic.key?('accessRestriction'), 'unknown rules must not claim a firewall state'
+  end
+
+  def test_nic_access_restriction_omitted_on_partial_sg_coverage
+    # NIC references SGs 0 and 1; only SG 0 supplied -> unknown -> omit.
+    nic = @mapper.map_nics(File.read(fixture('vm_template.xml')),
+                           sg_xml_by_id: { '0' => HTTPS_ONLY_SG })
+                 .first['resource']['networkInterface']
+    refute nic.key?('accessRestriction')
+  end
+
   # --- Image mapping ---
 
   def test_map_image_basic

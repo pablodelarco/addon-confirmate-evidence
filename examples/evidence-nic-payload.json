@@ -1,6 +1,6 @@
 {
-  "id": "787a9782-4935-529c-9665-22f541bb5d88",
-  "timestamp": "2026-06-12T08:37:45Z",
+  "id": "ad69028c-19d8-5980-936f-00316353a8a9",
+  "timestamp": "2026-06-12T11:06:06Z",
   "targetOfEvaluationId": "11111111-2222-3333-4444-555555555555",
   "toolId": "opennebula-addon-confirmate-evidence",
   "resource": {
@@ -13,6 +13,12 @@
         "securityGroupIds": "0,1"
       },
       "internetAccessibleEndpoint": false,
+      "accessRestriction": {
+        "l3Firewall": {
+          "enabled": true,
+          "restrictedPorts": "22"
+        }
+      },
       "raw": "<VM>\n  <ID>42</ID>\n  <NAME>emerald-test-vm</NAME>\n  <STATE>3</STATE>\n  <LCM_STATE>3</LCM_STATE>\n  <STIME>1709013200</STIME>\n  <ETIME>0</ETIME>\n  <UID>0</UID>\n  ... [truncated example]"
     }
   }

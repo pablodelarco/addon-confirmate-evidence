@@ -113,9 +113,13 @@ begin
   mapper = OntologyMapper.new(config)
   client = ConfirmateClient.new(config, logger)
 
+  # One SG fetch serves both the per-NIC accessRestriction.l3Firewall
+  # (RestrictSSH metric) and the VM's ssh/rdp labels below.
+  sg_xml_by_id = OntologyMapper.fetch_sg_xml_by_id(vm_xml)
+
   # Submit one NetworkInterface evidence per NIC, plus an updated VM evidence
   # so networkInterfaceIds reflects the new state.
-  mapper.map_nics(vm_xml).each do |nic_ev|
+  mapper.map_nics(vm_xml, sg_xml_by_id: sg_xml_by_id).each do |nic_ev|
     begin
       client.store_evidence(nic_ev)
     rescue StandardError => e
@@ -126,7 +130,7 @@ begin
   # Pass the security-group rules here too: this refreshed VM evidence is the
   # latest the orchestrator will assess, so omitting the SG data would silently
   # drop the sshRestricted/rdpRestricted labels on every NIC attach/detach.
-  client.store_evidence(mapper.map_vm(vm_xml, sg_xml_by_id: OntologyMapper.fetch_sg_xml_by_id(vm_xml)))
+  client.store_evidence(mapper.map_vm(vm_xml, sg_xml_by_id: sg_xml_by_id))
 
   logger.info('NIC evidence hook completed')
 
