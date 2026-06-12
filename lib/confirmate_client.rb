@@ -66,7 +66,17 @@ class ConfirmateClient
         case response
         when Net::HTTPSuccess
           @logger.info("Evidence #{evidence_id} stored successfully (HTTP #{response.code})")
-          return JSON.parse(response.body) rescue {}
+          # NOTE: not `return JSON.parse(...) rescue {}` — with a rescue
+          # modifier the `return` is aborted when parse raises, falling
+          # through to the retry loop and re-POSTing stored evidence.
+          body = response.body
+          return {} if body.nil? || body.strip.empty?
+
+          begin
+            return JSON.parse(body)
+          rescue JSON::ParserError
+            return {}
+          end
         when Net::HTTPUnauthorized
           @logger.warn("Token expired, refreshing and retrying (attempt #{attempt}/#{MAX_RETRIES})")
           @token_manager = TokenManager.new(@config, @logger)

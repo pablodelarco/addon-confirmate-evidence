@@ -118,7 +118,10 @@ begin
     end
   end
 
-  client.store_evidence(mapper.map_vm(vm_xml))
+  # Pass the security-group rules here too: this refreshed VM evidence is the
+  # latest the orchestrator will assess, so omitting the SG data would silently
+  # drop the sshRestricted/rdpRestricted labels on every NIC attach/detach.
+  client.store_evidence(mapper.map_vm(vm_xml, sg_xml_by_id: OntologyMapper.fetch_sg_xml_by_id(vm_xml)))
 
   logger.info('NIC evidence hook completed')
 

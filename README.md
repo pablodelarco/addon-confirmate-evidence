@@ -113,8 +113,9 @@ logging:
   file: "/var/log/one/confirmate-evidence.log"
 ```
 
-The addon refuses to start unless `target_of_evaluation_id` is a real UUID (the
-all-zeros placeholder only works against a local default orchestrator). For local
+The addon refuses to start when `target_of_evaluation_id` is missing or not a
+UUID; the all-zeros placeholder is accepted with a loud warning (it only works
+against a local default orchestrator). For local
 testing values, see [Appendix A](#appendix-a--local-confirmate-for-testing).
 
 ```bash
@@ -229,7 +230,7 @@ Each result links back to the originating evidence by ID:
 | `confirmate.auth.static_token` | Pre-issued bearer token (bypass OAuth) | _(empty)_ |
 | `confirmate.tls.ca_file` | Extra CA bundle to trust _in addition_ to system roots (HTTPS); never weakens verification | _(empty)_ |
 | `evidence.tool_id` | Tool identifier in every evidence | `opennebula-addon-confirmate-evidence` |
-| `evidence.target_of_evaluation_id` | ToE UUID from EMERALD UI (real UUID required; placeholder rejected) | _(placeholder)_ |
+| `evidence.target_of_evaluation_id` | ToE UUID from EMERALD UI (missing/non-UUID rejected; all-zeros placeholder warns) | _(placeholder)_ |
 | `evidence.default_region` | Geo-location label | `eu-south-1` |
 | `logging.level` | debug / info / warn / error | `info` |
 | `logging.file` | Log file path | `/var/log/one/confirmate-evidence.log` |
@@ -250,7 +251,9 @@ Each result links back to the originating evidence by ID:
 | `<NIC><EXTERNAL>` or non-RFC1918 IP | `internetAccessibleEndpoint` | bool |
 | `<MONITORING>` | `bootLogging.enabled`, `osLogging.enabled` | heuristic |
 | — | `automaticUpdates.enabled` | always `false` (no ONE source) |
-| `<DISK><ENCRYPT>` / `<CIPHER>` | _(in `raw` XML)_ | Confirmate's ontology no longer carries at-rest encryption on the VM |
+| `<DISK><ENCRYPTION>` or `<ENCRYPT>` (all disks) | `labels.diskEncryption` | CIS 4.3, computed bool: `"true"` only when every disk carries an encryption attribute (`CIPHER` rides in `raw` only, not evaluated) |
+| `<NIC><EXTERNAL>` or non-RFC1918 IP | `labels.publicIp` | CIS 4.4, mirrors `internetAccessibleEndpoint` |
+| `<NIC><SECURITY_GROUPS>` inbound rules | `labels.sshRestricted`, `labels.rdpRestricted` | CIS 9.2 / 9.3: the VM/NIC hooks fetch the groups via `onesecgroup show -x`; the labels are emitted only when **every** referenced group could be read (a partial read could hide the exposing rule), and say whether port 22/3389 is reachable from an unrestricted source |
 
 ### NIC → NetworkInterface
 
@@ -274,7 +277,12 @@ Confirmate policies.
 | `<ID>` | `id` (`"one-image-{id}"`) |
 | `<NAME>` | `name` |
 | `<REGTIME>` | `creationTime` |
-| `<PERMISSIONS><OTHER_U>` | `publicAccess` |
+| `<PERMISSIONS><OTHER_U>` | `labels.publicAccess` |
+
+`VMImage` has no first-class `publicAccess` field in `confirmate.ontology.v1`
+(it exists only on `FileStorage`/`ObjectStorage`), so it rides in `labels` —
+still queryable, and a strict Evidence Store cannot reject the evidence for an
+unknown field.
 
 ---
 
@@ -282,13 +290,13 @@ Confirmate policies.
 
 | Control | Description | Evidence source |
 |---|---|---|
-| CIS 4.3 | VM Disk Encryption with CSEK | `DISK/ENCRYPT` + `DISK/CIPHER` (raw) |
-| CIS 4.4 | No Public IP on Compute Instances | `NIC/EXTERNAL`, IP-range check → `internetAccessibleEndpoint` |
-| CIS 8.3 | Storage Not Publicly Accessible | `IMAGE/PERMISSIONS/OTHER_U` |
-| CIS 8.5 | Cloud Asset Inventory Enabled | Continuous evidence collection |
-| CIS 8.6 | Cloud Audit Logging Configured | `MONITORING` presence |
-| CIS 9.2 | SSH Access Restricted | `NIC/SECURITY_GROUPS` |
-| CIS 9.3 | RDP Access Restricted | `NIC/SECURITY_GROUPS` |
+| CIS 4.3 | VM Disk Encryption | `DISK/ENCRYPTION`\|`ENCRYPT` (all disks) → `virtualMachine.labels.diskEncryption`; raw XML attached (`CIPHER` carried in raw only) |
+| CIS 4.4 | No Public IP on Compute Instances | `NIC/EXTERNAL`, IP-range check → `internetAccessibleEndpoint` + `labels.publicIp` |
+| CIS 8.3 | Storage Not Publicly Accessible | `IMAGE/PERMISSIONS/OTHER_U` → `vmImage.labels.publicAccess` |
+| CIS 8.5 | Cloud Asset Inventory Enabled | Partial: continuous per-resource evidence; full inventory needs a system-level collector |
+| CIS 8.6 | Cloud Audit Logging Configured | Partial: `MONITORING` presence → `bootLogging`/`osLogging`; oned-level audit config needs a system-level collector |
+| CIS 9.2 | SSH Access Restricted | `NIC/SECURITY_GROUPS` inbound rules (`onesecgroup show -x`) → `labels.sshRestricted` |
+| CIS 9.3 | RDP Access Restricted | same mechanism, port 3389 → `labels.rdpRestricted` |
 
 ---
 
@@ -351,7 +359,7 @@ sudo -u oneadmin onehook log --since $(date -d '1 hour ago' +%m/%d) | head -30
 curl -sS -o /dev/null -w "%{http_code}\n" http://CONFIRMATE-HOST:8080/v1/auth/certs   # → 200
 
 # Tests
-ruby tests/test_ontology_mapper.rb   # 22 unit tests
+ruby tests/test_ontology_mapper.rb   # 33 unit tests
 ruby tests/test_token_manager.rb     #  6 unit tests
 ruby tests/smoke.rb                  # end-to-end POST (skips cleanly if no Confirmate)
 

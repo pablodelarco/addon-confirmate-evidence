@@ -42,6 +42,25 @@ defensive guards, and docs.
   specifically "Confirmate's embedded OAuth server".
 
 ### Fixed
+- `ConfirmateClient#store_evidence`: a success response with an empty or
+  non-JSON body no longer falls through to the retry loop (the
+  `return ... rescue {}` modifier aborted the return), which re-POSTed stored
+  evidence and then raised a spurious failure.
+- SSH/RDP labels are now emitted only when **every** security group referenced
+  by the VM's NICs was fetched and parsed; with partial coverage the missing
+  group could contain the exposing rule, so the labels are omitted (with a
+  warning) instead of claiming false compliance. `parse_inbound_rules` returns
+  `nil` for unreadable XML vs `[]` for a genuinely rule-less group.
+- The NIC hook now passes security-group data when re-submitting VM evidence
+  (via the new shared `OntologyMapper.fetch_sg_xml_by_id`), so NIC attach/detach
+  no longer erases the `sshRestricted`/`rdpRestricted` labels.
+- Tests: replaced two tautological assertions (NIC exposure, diskEncryption)
+  with exact ones; added coverage for the all-disks-encrypted true branch and
+  the partial/malformed security-group cases. Example payloads in `examples/`
+  regenerated to the current evidence shape (labels included).
+- README aligned with the shipped code: VM labels documented, `vmImage`
+  `labels.publicAccess`, CIS table updated (4.3/4.4/9.2/9.3 label-based;
+  8.5/8.6 marked partial), placeholder-ToE wording, test counts.
 - `vmImage` evidence no longer sends `publicAccess`: checked against the current
   upstream spec (`core/api/evidence/openapi.yaml`), `publicAccess` exists only on
   `FileStorage`/`ObjectStorage`, not on `confirmate.ontology.v1.VMImage`. The

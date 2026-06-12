@@ -1,7 +1,7 @@
 {
-  "id": "550e8400-e29b-41d4-a716-446655440002",
-  "timestamp": "2026-03-10T09:00:00Z",
-  "targetOfEvaluationId": "a1b2c3d4-0000-0000-0000-000000000001",
+  "id": "787a9782-4935-529c-9665-22f541bb5d88",
+  "timestamp": "2026-06-12T08:37:45Z",
+  "targetOfEvaluationId": "11111111-2222-3333-4444-555555555555",
   "toolId": "opennebula-addon-confirmate-evidence",
   "resource": {
     "networkInterface": {
@@ -13,7 +13,7 @@
         "securityGroupIds": "0,1"
       },
       "internetAccessibleEndpoint": false,
-      "raw": "<VM><TEMPLATE><NIC>...</NIC></TEMPLATE></VM>"
+      "raw": "<VM>\n  <ID>42</ID>\n  <NAME>emerald-test-vm</NAME>\n  <STATE>3</STATE>\n  <LCM_STATE>3</LCM_STATE>\n  <STIME>1709013200</STIME>\n  <ETIME>0</ETIME>\n  <UID>0</UID>\n  ... [truncated example]"
     }
   }
 }

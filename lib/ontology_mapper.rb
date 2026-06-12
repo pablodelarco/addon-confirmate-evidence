@@ -117,9 +117,22 @@ class OntologyMapper
       'publicIp' => has_public_ip.to_s               # CIS 4.4 public_ip_adress
     }
     unless sg_xml_by_id.nil? || sg_xml_by_id.empty?
-      inbound = nic_security_group_ids(vm).flat_map { |id| parse_inbound_rules(sg_xml_by_id[id]) }
-      labels['sshRestricted'] = (!port_open_from_internet?(inbound, 22)).to_s    # CIS 9.2
-      labels['rdpRestricted'] = (!port_open_from_internet?(inbound, 3389)).to_s  # CIS 9.3
+      # Only emit the ssh/rdp labels when EVERY security group referenced by the
+      # VM's NICs was fetched and parsed. With partial coverage the missing
+      # group could contain the very rule that exposes the port, so claiming
+      # "restricted" would be a false compliance statement; omitting the labels
+      # is the honest answer (same as when no SG data is supplied at all).
+      expected = nic_security_group_ids(vm)
+      parsed = expected.map { |id| [id, parse_inbound_rules(sg_xml_by_id[id])] }.to_h
+      if !expected.empty? && parsed.values.none?(&:nil?)
+        inbound = parsed.values.flatten
+        labels['sshRestricted'] = (!port_open_from_internet?(inbound, 22)).to_s    # CIS 9.2
+        labels['rdpRestricted'] = (!port_open_from_internet?(inbound, 3389)).to_s  # CIS 9.3
+      else
+        warn "confirmate-evidence: security groups #{expected - parsed.reject { |_, v| v.nil? }.keys} " \
+             'could not be read; omitting sshRestricted/rdpRestricted labels for ' \
+             "one-vm-#{vm_id} rather than risking a false compliance claim"
+      end
     end
 
     resource = {
@@ -159,6 +172,25 @@ class OntologyMapper
     ids.reject(&:empty?).uniq
   rescue StandardError
     []
+  end
+
+  # Best-effort fetch of the security groups referenced by a VM's NICs, shared
+  # by the VM and NIC hooks so both submit identical sshRestricted/rdpRestricted
+  # labels. SG ids are coerced to Integer before shelling out (no injection).
+  # Any failure simply yields a smaller map; map_vm's coverage check then omits
+  # the ssh/rdp labels instead of claiming false compliance.
+  #
+  # @param vm_xml_str [String] OpenNebula VM XML
+  # @return [Hash] { sgId => `onesecgroup show -x` XML }
+  def self.fetch_sg_xml_by_id(vm_xml_str)
+    sg_xml_by_id = {}
+    security_group_ids(vm_xml_str).each do |sgid|
+      out = `onesecgroup show #{sgid.to_i} -x 2>/dev/null`
+      sg_xml_by_id[sgid] = out if out && !out.strip.empty?
+    end
+    sg_xml_by_id
+  rescue StandardError
+    sg_xml_by_id || {}
   end
 
   # Maps NIC elements from a VM XML to NetworkInterface evidence payloads.
@@ -459,8 +491,12 @@ class OntologyMapper
 
   # Parses the INBOUND rules from an `onesecgroup show -x` XML string into a list
   # of {protocol, range, restricted_source} hashes.
+  #
+  # Returns nil (NOT []) when the XML is missing or unparseable, so map_vm can
+  # distinguish "this SG genuinely has no inbound rules" (=> most restrictive,
+  # []) from "we could not read this SG" (=> unknown, labels must be omitted).
   def parse_inbound_rules(sg_xml)
-    return [] if sg_xml.nil? || sg_xml.strip.empty?
+    return nil if sg_xml.nil? || sg_xml.strip.empty?
 
     doc = REXML::Document.new(sg_xml)
     rules = []
@@ -476,7 +512,7 @@ class OntologyMapper
     end
     rules
   rescue StandardError
-    []
+    nil
   end
 
   # True if any inbound rule exposes `port` to an unrestricted source (internet):

@@ -1,13 +1,13 @@
 {
-  "id": "550e8400-e29b-41d4-a716-446655440001",
-  "timestamp": "2026-03-10T09:00:00Z",
-  "targetOfEvaluationId": "a1b2c3d4-0000-0000-0000-000000000001",
+  "id": "9a109cc2-bac5-5b19-ab41-8450114f2c47",
+  "timestamp": "2026-06-12T08:37:45Z",
+  "targetOfEvaluationId": "11111111-2222-3333-4444-555555555555",
   "toolId": "opennebula-addon-confirmate-evidence",
   "resource": {
     "virtualMachine": {
       "id": "one-vm-42",
-      "name": "emerald-demo-vm",
-      "creationTime": "2026-03-10T08:30:00Z",
+      "name": "emerald-test-vm",
+      "creationTime": "2024-02-27T05:53:20Z",
       "geoLocation": {
         "region": "eu-south-1"
       },
@@ -16,7 +16,8 @@
         "one-nic-42-1"
       ],
       "blockStorageIds": [
-        "one-disk-42-0"
+        "one-disk-42-0",
+        "one-disk-42-1"
       ],
       "bootLogging": {
         "enabled": true
@@ -27,8 +28,14 @@
       "automaticUpdates": {
         "enabled": false
       },
-      "internetAccessibleEndpoint": false,
-      "raw": "<VM><ID>42</ID><NAME>emerald-demo-vm</NAME>...</VM>"
+      "internetAccessibleEndpoint": true,
+      "labels": {
+        "diskEncryption": "false",
+        "publicIp": "true",
+        "sshRestricted": "true",
+        "rdpRestricted": "true"
+      },
+      "raw": "<VM>\n  <ID>42</ID>\n  <NAME>emerald-test-vm</NAME>\n  <STATE>3</STATE>\n  <LCM_STATE>3</LCM_STATE>\n  <STIME>1709013200</STIME>\n  <ETIME>0</ETIME>\n  <UID>0</UID>\n  ... [truncated example]"
     }
   }
 }

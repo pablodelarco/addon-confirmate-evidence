@@ -171,14 +171,55 @@ class TestOntologyMapper < Minitest::Test
 
   def test_map_vm_has_disk_and_public_ip_labels
     vm = @mapper.map_vm(File.read(fixture('vm_template.xml')))['resource']['virtualMachine']
-    assert vm['labels'].key?('diskEncryption'), 'CIS 4.3 vmdisk_encryption label'
-    assert vm['labels'].key?('publicIp'),       'CIS 4.4 public_ip_adress label'
-    assert_includes %w[true false], vm['labels']['diskEncryption']
-    # publicIp mirrors internetAccessibleEndpoint
+    # Mixed disks: only DISK 0 has ENCRYPT=YES, so the all-disks check is false.
+    assert_equal 'false', vm['labels']['diskEncryption'], 'CIS 4.3: ALL disks must be encrypted'
+    # publicIp mirrors internetAccessibleEndpoint (true: NIC 1 is EXTERNAL)
+    assert_equal 'true', vm['labels']['publicIp']
     assert_equal vm['internetAccessibleEndpoint'].to_s, vm['labels']['publicIp']
     # ssh/rdp labels are omitted unless security-group data is supplied
     refute vm['labels'].key?('sshRestricted')
     refute vm['labels'].key?('rdpRestricted')
+  end
+
+  def test_disk_encryption_label_true_when_all_disks_encrypted
+    xml = <<~XML
+      <VM>
+        <ID>77</ID><NAME>enc-vm</NAME><STIME>1709013200</STIME>
+        <TEMPLATE>
+          <DISK><DISK_ID>0</DISK_ID><ENCRYPTION>luks</ENCRYPTION></DISK>
+          <DISK><DISK_ID>1</DISK_ID><ENCRYPT>YES</ENCRYPT></DISK>
+        </TEMPLATE>
+      </VM>
+    XML
+    vm = @mapper.map_vm(xml)['resource']['virtualMachine']
+    assert_equal 'true', vm['labels']['diskEncryption'], 'every disk carries an encryption attribute'
+  end
+
+  def test_ssh_rdp_labels_omitted_on_partial_security_group_coverage
+    # vm_template.xml references SGs 0 and 1; supplying only SG 0 means the
+    # rules of SG 1 are unknown -> claiming "restricted" would be a false
+    # compliance statement, so the labels must be omitted.
+    https_only = '<SECURITY_GROUP><TEMPLATE><RULE><PROTOCOL>TCP</PROTOCOL>' \
+                 '<RANGE>443</RANGE><RULE_TYPE>INBOUND</RULE_TYPE></RULE></TEMPLATE></SECURITY_GROUP>'
+    vm = nil
+    _out, err = capture_io do
+      vm = @mapper.map_vm(File.read(fixture('vm_template.xml')),
+                          sg_xml_by_id: { '0' => https_only })['resource']['virtualMachine']
+    end
+    refute vm['labels'].key?('sshRestricted'), 'partial SG coverage must omit the label'
+    refute vm['labels'].key?('rdpRestricted')
+    assert_match(/could not be read/, err)
+  end
+
+  def test_ssh_rdp_labels_omitted_on_malformed_security_group_xml
+    ids = OntologyMapper.security_group_ids(File.read(fixture('vm_template.xml')))
+    sg_map = ids.each_with_object({}) { |i, h| h[i] = '<not-xml' }
+    vm = nil
+    capture_io do
+      vm = @mapper.map_vm(File.read(fixture('vm_template.xml')),
+                          sg_xml_by_id: sg_map)['resource']['virtualMachine']
+    end
+    refute vm['labels'].key?('sshRestricted'), 'unreadable SG rules must omit the label'
   end
 
   def test_security_group_ids_extracted_from_vm
@@ -230,9 +271,10 @@ class TestOntologyMapper < Minitest::Test
     evidences = @mapper.map_nics(File.read(fixture('vm_template.xml')))
     nic0 = evidences[0]['resource']['networkInterface']
     nic1 = evidences[1]['resource']['networkInterface']
-    # The 10.0.0.100 NIC has EXTERNAL=YES; the 192.168.x one does not.
-    assert_includes [true, false], nic0['internetAccessibleEndpoint']
-    assert_includes [true, false], nic1['internetAccessibleEndpoint']
+    # NIC 0 (10.0.0.100, RFC1918 private, no EXTERNAL) -> false;
+    # NIC 1 (203.0.113.50, EXTERNAL=YES) -> true.
+    assert_equal false, nic0['internetAccessibleEndpoint']
+    assert_equal true,  nic1['internetAccessibleEndpoint']
   end
 
   def test_map_nic_labels_carry_ip_and_security_groups
