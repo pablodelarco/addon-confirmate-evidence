@@ -11,6 +11,20 @@ HTTPS request path were already correct; these changes are configuration,
 defensive guards, and docs.
 
 ### Added
+- **`Identity` evidence** from OpenNebula users, so `AdminMFAEnabled` (CIS 4.5)
+  can assess whether privileged accounts have a second factor. `privileged`
+  comes from membership of the `oneadmin` group, `enforceMfa` from
+  `TEMPLATE/FIREEDGE/TWO_FACTOR_AUTH_SECRET`, `activated` from `ENABLED`, and
+  `AUTH_DRIVER` rides along as a label because it answers AIM-02's federation
+  question (`core` is a local account; `ldap`/`x509`/`saml` are not). Driven by
+  two API hooks, `one.user.allocate` and `one.user.update`: enrolling 2FA is an
+  update, not a creation. The `serveradmin` service account (`server_cipher`)
+  is skipped rather than reported as an administrator without MFA.
+- **`BlockStorage` evidence**, one per VM disk, carrying
+  `atRestEncryption.customerKeyEncryption.enabled`. The VM already advertised
+  these ids in `blockStorageIds`, but with no matching resources Confirmate
+  could not resolve its `related` array, so `VirtualMachineDiskEncryptionEnabled`
+  (CIS 4.3) never evaluated.
 - CXB OpenNebula custom-control evidence (CIS), emitted as `virtualMachine.labels`
   so custom metrics can evaluate them (raw XML stays attached for audit):
   `diskEncryption` (CIS 4.3 vmdisk_encryption), `publicIp` (CIS 4.4

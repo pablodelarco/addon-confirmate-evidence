@@ -173,12 +173,14 @@ re-scanned.
 
 | OpenNebula action | Hook | Evidence sent |
 |---|---|---|
-| VM enters RUNNING | `hook-confirmate-vm-running` | VirtualMachine + each NetworkInterface |
+| VM enters RUNNING | `hook-confirmate-vm-running` | VirtualMachine + each NetworkInterface + each BlockStorage |
 | VM enters POWEROFF | `hook-confirmate-vm-poweroff` | updated VirtualMachine |
 | VM is terminated | `hook-confirmate-vm-done` | final VirtualMachine state |
 | `onevm nic-attach` / `nic-detach` | (vm-running re-fires) | updated VirtualMachine + NICs |
 | Image reaches READY | `hook-confirmate-image-ready` | VMImage |
 | `onevnet create` | `hook-confirmate-net-create` | VirtualNetwork |
+| `oneuser create` | `hook-confirmate-user-create` | Identity |
+| `oneuser update` (2FA enrolled) | `hook-confirmate-user-update` | updated Identity |
 
 Live log: `sudo tail -f /var/log/one/confirmate-evidence.log`
 
@@ -270,6 +272,40 @@ Each result links back to the originating evidence by ID:
 `NetworkInterface` has no first-class fields for IP or security groups;
 they ride in `labels` (a `map<string,string>`), still queryable by
 Confirmate policies.
+
+### User → Identity
+
+`Identity` carries `privileged`, `enforceMfa` and `activated` as first-class
+booleans, which is what the `AdminMFAEnabled` metric (CIS 4.5) evaluates.
+OpenNebula answers all three:
+
+| ontology field | OpenNebula source |
+|---|---|
+| `privileged` | membership of the built-in `oneadmin` group (GID 0) |
+| `enforceMfa` | `TEMPLATE/FIREEDGE/TWO_FACTOR_AUTH_SECRET` |
+| `activated` | `ENABLED` |
+
+FireEdge writes the TOTP secret only once a user actually enrols a second
+factor, so its presence is a measured fact rather than a self-declared tag.
+That is also why `one.user.update` has its own hook: turning MFA on is an
+update, not a creation.
+
+`AUTH_DRIVER` goes out as a label, since the ontology has no field for it. It
+answers whether an account is federated with the corporate directory (`core`
+is local; `ldap`, `x509` and `saml` are not), which control AIM-02 asks for.
+
+The `serveradmin` account is skipped. `server_cipher` is OpenNebula's internal
+driver for the identity OneFlow, OneGate and Sunstone authenticate with. It
+sits in the `oneadmin` group and will never enrol a second factor, so emitting
+it would report a privileged human without MFA that does not exist.
+
+### Disk → BlockStorage
+
+One `BlockStorage` per VM disk, carrying
+`atRestEncryption.customerKeyEncryption.enabled` from the disk's `ENCRYPTION`
+attribute. The VM evidence already advertises these ids in `blockStorageIds`;
+without the resources themselves Confirmate cannot resolve the VM's `related`
+array, and `VirtualMachineDiskEncryptionEnabled` (CIS 4.3) never evaluates.
 
 ### Image → VMImage
 

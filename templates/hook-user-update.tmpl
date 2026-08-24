@@ -1,0 +1,10 @@
+# Enabling a second factor is an update, not a creation: FireEdge writes the
+# enrolled TOTP secret into the user template. Without this hook an account
+# that turns MFA on would keep reporting enforceMfa=false until it is
+# recreated.
+NAME      = "hook-confirmate-user-update"
+TYPE      = api
+COMMAND   = "confirmate_user_evidence.rb"
+ARGUMENTS = "$API"
+ARGUMENTS_STDIN = "YES"
+CALL      = "one.user.update"

@@ -96,6 +96,12 @@ begin
   # lets each NIC carry accessRestriction.l3Firewall (RestrictSSH metric).
   nic_evidences = mapper.map_nics(template_xml, sg_xml_by_id: sg_xml_by_id)
 
+  # One BlockStorage per disk. The VM evidence already advertises these ids in
+  # blockStorageIds; without the resources themselves Confirmate cannot resolve
+  # the VM's `related` array and VirtualMachineDiskEncryptionEnabled (CIS 4.3)
+  # never evaluates.
+  disk_evidences = mapper.map_block_storages(template_xml)
+
   # Send VM evidence to Confirmate
   client = ConfirmateClient.new(config, logger)
   client.store_evidence(vm_evidence)
@@ -106,6 +112,15 @@ begin
       client.store_evidence(nic_ev)
     rescue StandardError => e
       logger.warn("Failed to send NIC evidence: #{e.message}")
+    end
+  end
+
+  # Send BlockStorage evidence for each disk
+  disk_evidences.each do |disk_ev|
+    begin
+      client.store_evidence(disk_ev)
+    rescue StandardError => e
+      logger.warn("Failed to send disk evidence: #{e.message}")
     end
   end
 

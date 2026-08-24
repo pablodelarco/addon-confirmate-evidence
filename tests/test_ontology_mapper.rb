@@ -387,9 +387,84 @@ class TestOntologyMapper < Minitest::Test
     assert_equal evidence, JSON.parse(json)
   end
 
+  # --- Identity (AdminMFAEnabled, CIS 4.5 / AIM-02) ---
+
+  def test_identity_admin_with_second_factor_is_privileged_and_enforces_mfa
+    ev = @mapper.map_identity(File.read(fixture('user_admin_mfa.xml')))
+    id = ev['resource']['identity']
+    assert_equal 'one-user-2', id['id']
+    assert_equal true, id['privileged'],  'membership of GID 0 (oneadmin) means privileged'
+    assert_equal true, id['enforceMfa'],  'a FIREEDGE TWO_FACTOR_AUTH_SECRET means a second factor is enrolled'
+    assert_equal true, id['activated']
+  end
+
+  def test_identity_admin_without_second_factor_reports_false_not_missing
+    ev = @mapper.map_identity(File.read(fixture('user_admin_no_mfa.xml')))
+    id = ev['resource']['identity']
+    assert_equal true,  id['privileged']
+    assert_equal false, id['enforceMfa'],
+                 'absent secret must be an explicit false, so the metric can fail it'
+  end
+
+  def test_identity_field_is_enforceMfa_as_the_ontology_serialises_it
+    ev = @mapper.map_identity(File.read(fixture('user_admin_mfa.xml')))
+    id = ev['resource']['identity']
+    assert id.key?('enforceMfa'), 'Identity.enforce_mfa has json_name=enforceMfa'
+    refute id.key?('enforceMFA'), 'enforceMFA is not an ontology field name'
+  end
+
+  def test_identity_skips_the_serveradmin_service_account
+    assert_nil @mapper.map_identity(File.read(fixture('user_serveradmin.xml'))),
+               'server_cipher is OpenNebula internal auth, not a human administrator'
+  end
+
+  def test_identity_labels_carry_the_auth_driver_for_federation
+    ev = @mapper.map_identity(File.read(fixture('user_admin_mfa.xml')))
+    labels = ev['resource']['identity']['labels']
+    assert_equal 'core',  labels['authDriver']
+    assert_equal 'false', labels['federated'], 'core is a local account, not federated'
+  end
+
+  def test_identity_evidence_uses_the_standard_envelope
+    ev = @mapper.map_identity(File.read(fixture('user_admin_mfa.xml')))
+    assert_equal TOE_UUID, ev['targetOfEvaluationId']
+    assert ev['resource']['identity'].key?('raw'), 'raw XML must be attached'
+  end
+
+  # --- BlockStorage (VirtualMachineDiskEncryptionEnabled, CIS 4.3) ---
+
+  def test_block_storage_ids_match_the_ones_the_vm_advertises
+    vm_xml = File.read(fixture('vm_template.xml'))
+    vm_ids = @mapper.map_vm(vm_xml)['resource']['virtualMachine']['blockStorageIds']
+    disk_ids = @mapper.map_block_storages(vm_xml).map { |e| e['resource']['blockStorage']['id'] }
+    assert_equal vm_ids.sort, disk_ids.sort,
+                 'Confirmate resolves vm.related through these ids; they must line up exactly'
+  end
+
+  def test_block_storage_reports_customer_key_encryption
+    ev = @mapper.map_block_storages(File.read(fixture('vm_template.xml'))).first
+    enc = ev['resource']['blockStorage']['atRestEncryption']
+    assert enc.key?('customerKeyEncryption'),
+           'the metric reads atRestEncryption.customerKeyEncryption.enabled'
+    assert [true, false].include?(enc['customerKeyEncryption']['enabled'])
+  end
+
+  def test_block_storage_of_an_unencrypted_vm_is_explicitly_false
+    ev = @mapper.map_block_storages(File.read(fixture('vm_no_encryption.xml'))).first
+    refute_nil ev, 'a VM with disks must still produce BlockStorage evidence'
+    assert_equal false, ev['resource']['blockStorage']['atRestEncryption']['customerKeyEncryption']['enabled']
+  end
+
+  def test_block_storage_points_back_at_its_vm
+    ev = @mapper.map_block_storages(File.read(fixture('vm_template.xml'))).first
+    assert_match(/\Aone-vm-/, ev['resource']['blockStorage']['parentId'])
+  end
+
+
   private
 
   def fixture(name)
     File.join(File.dirname(__FILE__), 'fixtures', name)
   end
+
 end

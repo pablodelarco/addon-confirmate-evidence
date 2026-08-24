@@ -23,6 +23,9 @@ require 'json'
 # Uses deterministic UUID v5 generation so that the same resource at the same
 # timestamp always produces the same evidence ID (idempotency).
 class OntologyMapper
+  # OpenNebula's built-in administrators group is always GID 0.
+  ADMIN_GROUP_ID = '0'
+
   # UUID namespace for generating deterministic evidence IDs (UUID v5)
   NAMESPACE_UUID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d'
 
@@ -295,6 +298,113 @@ class OntologyMapper
     }
 
     wrap_evidence("vnet-#{vnet_id}", resource, xml_str)
+  end
+
+  # Maps an ONE user XML document to an Identity evidence payload.
+  #
+  # confirmate.ontology.v1.Identity carries `privileged`, `enforceMfa` and
+  # `activated` as first-class booleans, which is exactly what the
+  # `AdminMFAEnabled` metric evaluates. OpenNebula can answer all three:
+  #
+  #   privileged  <- membership of the built-in oneadmin group (GID 0)
+  #   enforceMfa  <- TEMPLATE/FIREEDGE/TWO_FACTOR_AUTH_SECRET, written by
+  #                  FireEdge only once the user actually enrols a second
+  #                  factor, so its presence is a real signal rather than a
+  #                  self-declared tag
+  #   activated   <- ENABLED
+  #
+  # AUTH_DRIVER goes out as a label because the ontology has no field for it.
+  # It is the authoritative answer to "is this account federated with the
+  # corporate directory" (`core` is local, `ldap`/`x509`/`saml` are not), which
+  # control AIM-02 asks for.
+  #
+  # Service accounts are skipped. `server_cipher` is OpenNebula's internal
+  # driver for the serveradmin account that OneFlow, OneGate and Sunstone
+  # authenticate with. It sits in the oneadmin group and will never enrol a
+  # second factor, so emitting it would report a human administrator without
+  # MFA that does not exist.
+  #
+  # @param xml_str [String] OpenNebula user XML (as `oneuser show -x`)
+  # @return [Hash, nil] evidence payload, or nil for a service account
+  def map_identity(xml_str)
+    doc = REXML::Document.new(xml_str)
+    user = doc.root
+
+    auth_driver = (text(user, 'AUTH_DRIVER') || '').strip
+    return nil if auth_driver == 'server_cipher'
+
+    user_id = text(user, 'ID')
+    name    = text(user, 'NAME')
+
+    group_ids = collect_elements(user, 'GROUPS/ID').map { |g| g.text.to_s.strip }
+    group_ids << text(user, 'GID').to_s.strip if group_ids.empty?
+    privileged = group_ids.include?(ADMIN_GROUP_ID)
+
+    secret = text(user, 'TEMPLATE/FIREEDGE/TWO_FACTOR_AUTH_SECRET').to_s.strip
+    enforce_mfa = !secret.empty?
+
+    labels = { 'authDriver' => auth_driver }
+    labels['federated'] = (!auth_driver.empty? && auth_driver != 'core').to_s
+    labels['groupIds'] = group_ids.join(',') unless group_ids.empty?
+
+    resource = {
+      'identity' => {
+        'id' => "one-user-#{user_id}",
+        'name' => name,
+        'activated' => text(user, 'ENABLED').to_s.strip == '1',
+        'privileged' => privileged,
+        'enforceMfa' => enforce_mfa,
+        'labels' => labels
+      }
+    }
+
+    wrap_evidence("user-#{user_id}", resource, xml_str)
+  end
+
+  # Maps the disks of a VM to BlockStorage evidence payloads, one per disk.
+  #
+  # map_vm already emits `blockStorageIds` naming these resources; without the
+  # resources themselves Confirmate cannot resolve the VM's `related` array,
+  # and `VirtualMachineDiskEncryptionEnabled` (CIS 4.3) never evaluates.
+  #
+  # The metric reads `atRestEncryption.customerKeyEncryption.enabled`, matching
+  # the control's wording about customer-supplied keys. OpenNebula's disk
+  # ENCRYPTION attribute is LUKS with an operator-provided secret, so it maps
+  # there rather than to managedKeyEncryption.
+  #
+  # @param xml_str [String] OpenNebula VM XML (decoded from Base64)
+  # @return [Array<Hash>] one evidence payload per disk
+  def map_block_storages(xml_str)
+    doc = REXML::Document.new(xml_str)
+    vm = doc.root
+
+    vm_id = text(vm, 'ID')
+
+    collect_elements(vm, 'TEMPLATE/DISK').map do |disk|
+      disk_id = text(disk, 'DISK_ID') || '0'
+      raw = (text(disk, 'ENCRYPTION') || text(disk, 'ENCRYPT') || '').strip
+      encrypted = !raw.empty? && !%w[no none 0 false].include?(raw.downcase)
+
+      labels = {}
+      labels['encryption'] = raw unless raw.empty?
+      image = text(disk, 'IMAGE')
+      labels['image'] = image if image
+
+      resource = {
+        'blockStorage' => {
+          'id' => "one-disk-#{vm_id}-#{disk_id}",
+          'name' => image || "disk#{disk_id}",
+          'parentId' => "one-vm-#{vm_id}",
+          'geoLocation' => { 'region' => @default_region },
+          'atRestEncryption' => {
+            'customerKeyEncryption' => { 'enabled' => encrypted }
+          },
+          'labels' => labels
+        }
+      }
+
+      wrap_evidence("disk-#{vm_id}-#{disk_id}", resource, xml_str)
+    end
   end
 
   private
