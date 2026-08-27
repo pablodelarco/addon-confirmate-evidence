@@ -461,10 +461,50 @@ class TestOntologyMapper < Minitest::Test
   end
 
 
+
+  # --- Datastore (ObjectStorage) --------------------------------------------
+
+  def test_map_datastore_reports_private_when_other_u_is_zero
+    evidence = @mapper.map_datastore(File.read(fixture('datastore_private.xml')))
+    storage  = evidence['resource']['objectStorage']
+
+    assert_equal false, storage['publicAccess']
+    assert_equal 'one-datastore-1', storage['id']
+    assert_equal 'default', storage['name']
+  end
+
+  def test_map_datastore_reports_public_when_other_u_is_set
+    evidence = @mapper.map_datastore(File.read(fixture('datastore_public.xml')))
+
+    assert_equal true, evidence['resource']['objectStorage']['publicAccess']
+  end
+
+  def test_map_datastore_carries_remaining_permission_bits_as_labels
+    evidence = @mapper.map_datastore(File.read(fixture('datastore_private.xml')))
+    labels   = evidence['resource']['objectStorage']['labels']
+
+    assert_equal '0', labels['otherManage']
+    assert_equal '0', labels['otherAdmin']
+  end
+
+  # --- BlockStorage backups -------------------------------------------------
+
+  def test_block_storage_reports_no_backup_when_the_backups_block_is_empty
+    evidence = @mapper.map_block_storages(File.read(fixture('vm_no_backup.xml')))
+
+    assert_equal [{ 'enabled' => false }], evidence.first['resource']['blockStorage']['backups']
+  end
+
+  def test_block_storage_reports_a_backup_when_backup_config_is_set
+    evidence = @mapper.map_block_storages(File.read(fixture('vm_with_backup.xml')))
+
+    assert_equal [{ 'enabled' => true }], evidence.first['resource']['blockStorage']['backups']
+  end
+
+
   private
 
   def fixture(name)
     File.join(File.dirname(__FILE__), 'fixtures', name)
   end
-
 end

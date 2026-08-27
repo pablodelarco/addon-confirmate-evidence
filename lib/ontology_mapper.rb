@@ -380,6 +380,12 @@ class OntologyMapper
 
     vm_id = text(vm, 'ID')
 
+    # OpenNebula backs up a whole VM, not a datastore, but the ontology hangs
+    # `backups` off the storage messages and never off VirtualMachine. The disk
+    # is the thing actually copied, so the VM's backup state is reported on each
+    # of its BlockStorage resources.
+    backups_enabled = vm_backups_enabled?(vm)
+
     collect_elements(vm, 'TEMPLATE/DISK').map do |disk|
       disk_id = text(disk, 'DISK_ID') || '0'
       raw = (text(disk, 'ENCRYPTION') || text(disk, 'ENCRYPT') || '').strip
@@ -399,6 +405,7 @@ class OntologyMapper
           'atRestEncryption' => {
             'customerKeyEncryption' => { 'enabled' => encrypted }
           },
+          'backups' => [{ 'enabled' => backups_enabled }],
           'labels' => labels
         }
       }
@@ -407,7 +414,64 @@ class OntologyMapper
     end
   end
 
+  # Maps an ONE Datastore XML document to an ObjectStorage evidence payload.
+  #
+  # `publicAccess` reads the OTHER_U permission bit, which is what makes a
+  # datastore readable by every user in the installation. OTHER_M and OTHER_A
+  # are carried as labels rather than folded into the flag, because the metric
+  # `ObjectStoragePublicAccessDisabled` asks only whether the storage is
+  # publicly accessible.
+  #
+  # @param xml_str [String] OpenNebula datastore XML (as `onedatastore show -x`)
+  # @return [Hash] evidence payload
+  def map_datastore(xml_str)
+    doc = REXML::Document.new(xml_str)
+    ds  = doc.root
+
+    ds_id = text(ds, 'ID')
+    name  = text(ds, 'NAME')
+
+    other_u = text(ds, 'PERMISSIONS/OTHER_U').to_s.strip
+    public_access = other_u == '1'
+
+    labels = {}
+    { 'OTHER_M' => 'otherManage', 'OTHER_A' => 'otherAdmin' }.each do |bit, key|
+      value = text(ds, "PERMISSIONS/#{bit}").to_s.strip
+      labels[key] = value unless value.empty?
+    end
+    ds_type = text(ds, 'TYPE').to_s.strip
+    labels['datastoreType'] = ds_type unless ds_type.empty?
+
+    resource = {
+      'objectStorage' => {
+        'id' => "one-datastore-#{ds_id}",
+        'name' => name || "datastore#{ds_id}",
+        'geoLocation' => { 'region' => @default_region },
+        'publicAccess' => public_access,
+        'labels' => labels
+      }
+    }
+
+    wrap_evidence("datastore-#{ds_id}", resource, xml_str)
+  end
+
   private
+
+  # True when the VM has a backup configuration or at least one completed
+  # backup. An empty `<BACKUPS>` block means no backup was ever set up, which
+  # is a real non-compliance rather than missing evidence, so it reports false
+  # instead of omitting the field.
+  #
+  # @param vm [REXML::Element] the VM root element
+  # @return [Boolean]
+  def vm_backups_enabled?(vm)
+    config = REXML::XPath.first(vm, 'BACKUPS/BACKUP_CONFIG')
+    ids    = REXML::XPath.first(vm, 'BACKUPS/BACKUP_IDS')
+    has_config = !config.nil? && config.elements.to_a.any?
+    has_ids    = !ids.nil?    && ids.elements.to_a.any?
+    has_config || has_ids
+  end
+
 
   # Wraps a mapped ontology resource into a complete Confirmate Evidence payload.
   #
