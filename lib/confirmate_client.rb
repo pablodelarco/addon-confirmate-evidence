@@ -13,6 +13,7 @@ require 'uri'
 require 'json'
 require 'logger'
 require 'yaml'
+require 'digest/sha1'
 
 $LOAD_PATH.unshift(File.dirname(__FILE__)) unless $LOAD_PATH.include?(File.dirname(__FILE__))
 require 'token_manager'
@@ -40,6 +41,15 @@ class ConfirmateClient
     @endpoint = (config.dig('confirmate', 'endpoint') || 'http://localhost:8080').sub(%r{/+\z}, '')
     @ca_file = config.dig('confirmate', 'tls', 'ca_file')
     @token_manager = TokenManager.new(config, @logger)
+
+    # A single OpenNebula installation is often assessed under more than one
+    # Target of Evaluation at once, for instance the pilot's own ToE and a
+    # second one used to try a certification scheme without disturbing it.
+    # Mirroring here rather than in the hooks means every hook gains it and
+    # none of them had to change.
+    primary = config.dig('evidence', 'target_of_evaluation_id').to_s
+    extra   = config.dig('evidence', 'additional_target_of_evaluation_ids')
+    @mirror_target_ids = Array(extra).map(&:to_s).reject(&:empty?).uniq - [primary]
   end
 
   # Sends an evidence payload to the Confirmate Evidence Store.
@@ -47,7 +57,42 @@ class ConfirmateClient
   # @param evidence [Hash] evidence payload (as returned by OntologyMapper)
   # @return [Hash] parsed response body on success
   # @raise [RuntimeError] if all retries are exhausted
+  # Stores the evidence against the primary Target of Evaluation, then mirrors
+  # it to any additional ones. The primary result is what the caller gets back;
+  # a mirror that fails is logged and never raised, because losing a secondary
+  # copy must not fail the hook that produced the real one.
   def store_evidence(evidence)
+    result = store_one(evidence)
+    @mirror_target_ids.each do |target_id|
+      begin
+        store_one(mirror_evidence(evidence, target_id))
+      rescue StandardError => e
+        @logger.warn("Mirror to Target of Evaluation #{target_id} failed: #{e.message}")
+      end
+    end
+    result
+  end
+
+  # Copies an evidence payload for another Target of Evaluation. The evidence id
+  # has to change too, since it is the primary key in the Evidence Store, so it
+  # is re-derived deterministically from the original id and the target. The
+  # same resource re-sent later therefore keeps producing stable, distinct ids.
+  def mirror_evidence(evidence, target_id)
+    copy = Marshal.load(Marshal.dump(evidence))
+    copy['targetOfEvaluationId'] = target_id
+    copy['id'] = derive_uuid("#{evidence['id']}:#{target_id}")
+    copy
+  end
+
+  def derive_uuid(name)
+    bytes = Digest::SHA1.digest(name).bytes[0, 16]
+    bytes[6] = (bytes[6] & 0x0F) | 0x50
+    bytes[8] = (bytes[8] & 0x3F) | 0x80
+    hex = bytes.map { |b| format('%02x', b) }.join
+    [hex[0, 8], hex[8, 4], hex[12, 4], hex[16, 4], hex[20, 12]].join('-')
+  end
+
+  def store_one(evidence)
     evidence_id = evidence['id'] || 'unknown'
     resource_type = evidence['resource']&.keys&.first || 'unknown'
     resource_id = evidence.dig('resource', resource_type, 'id') || 'unknown'
