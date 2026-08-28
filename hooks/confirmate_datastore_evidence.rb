@@ -89,17 +89,33 @@ begin
 
   ds_elem = doc.elements['CALL_INFO/EXTRA/DATASTORE'] || REXML::XPath.first(doc, '//DATASTORE')
 
+  # one.datastore.chmod is the call that changes OTHER_U, the bit the
+  # ObjectStoragePublicAccessDisabled metric reads, and it is also the one call
+  # whose payload carries no <DATASTORE>. Falling back to reading the object by
+  # id keeps a permission change from going unreported, which would leave a
+  # datastore looking private after somebody opened it.
   if ds_elem.nil?
-    logger.info('No DATASTORE element in the API payload, nothing to send')
-    exit 0
+    id_param = REXML::XPath.first(doc, "CALL_INFO/PARAMETERS/PARAMETER[TYPE='IN'][POSITION='2']/VALUE")
+    ds_id = id_param&.text.to_s.strip
+
+    unless ds_id.match?(/\A\d+\z/)
+      logger.info('No DATASTORE element and no usable datastore id in the payload, nothing to send')
+      exit 0
+    end
+
+    logger.info("No DATASTORE element, reading datastore #{ds_id} back from OpenNebula")
+    ds_xml = `onedatastore show -x #{ds_id} 2>/dev/null`
+    if ds_xml.to_s.strip.empty?
+      logger.warn("Could not read datastore #{ds_id}, nothing to send")
+      exit 0
+    end
+  else
+    ds_doc = REXML::Document.new
+    ds_doc << ds_elem.deep_clone
+    ds_xml = String.new
+    ds_doc.write(ds_xml)
+    ds_id = ds_elem.elements['ID']&.text
   end
-
-  ds_doc = REXML::Document.new
-  ds_doc << ds_elem.deep_clone
-  ds_xml = String.new
-  ds_doc.write(ds_xml)
-
-  ds_id = ds_elem.elements['ID']&.text
   logger.info("Datastore change detected: datastore #{ds_id}")
 
   mapper = OntologyMapper.new(config)
