@@ -64,10 +64,30 @@ begin
 
   api_xml = Base64.decode64(raw_input)
 
-  # The datastore XML arrives inside <EXTRA> for allocate, and as the updated
-  # object for chmod/update. Take whichever is present.
+  # Load configuration
+  config_path = File.join(ETC_LOCATION, 'confirmate-evidence.conf')
+  config = YAML.load_file(config_path)
+
+  # Set up logging
+  log_file = config.dig('logging', 'file') || '/var/log/one/confirmate-evidence.log'
+  log_level = config.dig('logging', 'level') || 'info'
+  logger = Logger.new(log_file, 10, 1_048_576) rescue Logger.new($stderr)
+  logger.level = case log_level.downcase
+                 when 'debug' then Logger::DEBUG
+                 when 'info'  then Logger::INFO
+                 when 'warn'  then Logger::WARN
+                 when 'error' then Logger::ERROR
+                 else Logger::INFO
+                 end
+
+  logger.info('Datastore evidence hook triggered')
+
+  # OpenNebula API-hook payload (POST-hook) shape:
+  #   <CALL_INFO><EXTRA><DATASTORE>...full resource XML...</DATASTORE></EXTRA></CALL_INFO>
+  # allocate carries the new datastore, chmod and update the changed one.
   doc = REXML::Document.new(api_xml)
-  ds_elem = REXML::XPath.first(doc, '//DATASTORE')
+
+  ds_elem = doc.elements['CALL_INFO/EXTRA/DATASTORE'] || REXML::XPath.first(doc, '//DATASTORE')
 
   if ds_elem.nil?
     logger.info('No DATASTORE element in the API payload, nothing to send')
