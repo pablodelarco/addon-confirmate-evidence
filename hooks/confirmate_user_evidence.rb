@@ -94,19 +94,34 @@ begin
   user_elem = doc.elements['CALL_INFO/EXTRA/USER'] \
            || doc.elements['HOOK_MESSAGE/EXTRA/USER'] # legacy fallback
 
+  # `one.user.update` posts only the call parameters, no EXTRA/USER, so an
+  # attribute change (2FA secret added or removed) would go unreported. Read
+  # the user back by id, same fallback the datastore hook uses.
   if user_elem.nil?
-    logger.warn('No USER element in API hook payload — skipping')
-    exit 0
+    id_param = REXML::XPath.first(doc, "CALL_INFO/PARAMETERS/PARAMETER[TYPE='IN'][POSITION='2']/VALUE")
+    user_id = id_param&.text.to_s.strip
+
+    unless user_id.match?(/\A\d+\z/)
+      logger.info('No USER element and no usable user id in the payload, nothing to send')
+      exit 0
+    end
+
+    logger.info("No USER element, reading user #{user_id} back from OpenNebula")
+    user_xml = `oneuser show -x #{user_id} 2>/dev/null`
+    if user_xml.to_s.strip.empty?
+      logger.warn("Could not read user #{user_id}, nothing to send")
+      exit 0
+    end
+  else
+    # Serialize the <USER> subtree. OntologyMapper#map_identity expects a root
+    # document whose root is the resource, matching `oneuser show -x` output.
+    user_doc = REXML::Document.new
+    user_doc << user_elem.deep_clone
+    user_xml = String.new
+    user_doc.write(user_xml)
+
+    user_id = user_elem.elements['ID']&.text
   end
-
-  # Serialize the <USER> subtree. OntologyMapper#map_identity expects a root
-  # document whose root is the resource, matching `oneuser show -x` output.
-  user_doc = REXML::Document.new
-  user_doc << user_elem.deep_clone
-  user_xml = String.new
-  user_doc.write(user_xml)
-
-  user_id = user_elem.elements['ID']&.text
   logger.info("User change detected: user #{user_id}")
 
   mapper = OntologyMapper.new(config)
