@@ -327,6 +327,17 @@ class TestOntologyMapper < Minitest::Test
     refute nic.key?('accessRestriction')
   end
 
+  def test_nic_without_security_groups_reports_firewall_disabled
+    # No SECURITY_GROUPS at all is the worst case, not "does not apply":
+    # emit enabled=false so the metric fails the interface honestly.
+    xml = File.read(fixture('vm_template.xml'))
+            .sub(%r{<SECURITY_GROUPS>[^<]*</SECURITY_GROUPS>}, '')
+    nic = @mapper.map_nics(xml).first['resource']['networkInterface']
+    fw = nic.fetch('accessRestriction').fetch('l3Firewall')
+    assert_equal false, fw['enabled']
+    assert_equal '', fw['restrictedPorts']
+  end
+
   # --- Image mapping ---
 
   def test_map_image_basic

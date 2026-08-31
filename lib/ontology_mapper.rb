@@ -656,10 +656,18 @@ class OntologyMapper
   # broader list (e.g. "22,3389") would fail a genuinely compliant NIC. The
   # RDP state stays available in the VM's `labels.rdpRestricted`.
   def nic_access_restriction(sg_ids_csv, sg_xml_by_id)
-    return nil if sg_xml_by_id.nil? || sg_xml_by_id.empty?
-
     ids = sg_ids_csv.to_s.split(',').map(&:strip).reject(&:empty?)
-    return nil if ids.empty?
+
+    # A NIC with no security group at all has no firewall, which is the worst
+    # case, not a case that does not apply. Report it as enabled=false so the
+    # metric fails it honestly instead of skipping the interface.
+    if ids.empty?
+      return { 'l3Firewall' => { 'enabled' => false, 'restrictedPorts' => '' } }
+    end
+
+    # The NIC does have security groups but we could not read them: unknown,
+    # omit the field rather than claim a firewall state we have not seen.
+    return nil if sg_xml_by_id.nil? || sg_xml_by_id.empty?
 
     parsed = ids.map { |id| parse_inbound_rules(sg_xml_by_id[id]) }
     return nil if parsed.any?(&:nil?) # partial coverage -> unknown, omit
