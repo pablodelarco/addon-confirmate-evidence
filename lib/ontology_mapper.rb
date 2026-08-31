@@ -457,19 +457,17 @@ class OntologyMapper
 
   private
 
-  # True when the VM has a backup configuration or at least one completed
-  # backup. An empty `<BACKUPS>` block means no backup was ever set up, which
-  # is a real non-compliance rather than missing evidence, so it reports false
-  # instead of omitting the field.
+  # True only when the VM has at least one completed backup (`BACKUP_IDS`).
+  # A populated `BACKUP_CONFIG` with no backup ever run does not count: a
+  # policy that never executed protects nothing, so it reports false, the
+  # strict reading agreed with CaixaBank for the pilot. An empty `<BACKUPS>`
+  # block is likewise a real non-compliance rather than missing evidence.
   #
   # @param vm [REXML::Element] the VM root element
   # @return [Boolean]
   def vm_backups_enabled?(vm)
-    config = REXML::XPath.first(vm, 'BACKUPS/BACKUP_CONFIG')
-    ids    = REXML::XPath.first(vm, 'BACKUPS/BACKUP_IDS')
-    has_config = !config.nil? && config.elements.to_a.any?
-    has_ids    = !ids.nil?    && ids.elements.to_a.any?
-    has_config || has_ids
+    ids = REXML::XPath.first(vm, 'BACKUPS/BACKUP_IDS')
+    !ids.nil? && ids.elements.to_a.any?
   end
 
 

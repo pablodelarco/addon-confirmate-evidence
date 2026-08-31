@@ -506,8 +506,17 @@ class TestOntologyMapper < Minitest::Test
     assert_equal [{ 'enabled' => false }], evidence.first['resource']['blockStorage']['backups']
   end
 
-  def test_block_storage_reports_a_backup_when_backup_config_is_set
+  def test_block_storage_backup_config_alone_does_not_count
+    # Strict reading: a policy that never ran protects nothing. The fixture
+    # has BACKUP_CONFIG populated and BACKUP_IDS empty.
     evidence = @mapper.map_block_storages(File.read(fixture('vm_with_backup.xml')))
+    assert_equal [{ 'enabled' => false }], evidence.first['resource']['blockStorage']['backups']
+  end
+
+  def test_block_storage_reports_a_backup_when_one_has_run
+    xml = File.read(fixture('vm_with_backup.xml'))
+            .sub('<BACKUP_IDS/>', '<BACKUP_IDS><ID>42</ID></BACKUP_IDS>')
+    evidence = @mapper.map_block_storages(xml)
 
     assert_equal [{ 'enabled' => true }], evidence.first['resource']['blockStorage']['backups']
   end
