@@ -297,11 +297,11 @@ class TestOntologyMapper < Minitest::Test
             '<RULE_TYPE>INBOUND</RULE_TYPE></RULE></TEMPLATE></SECURITY_GROUP>'
 
   def test_nic_l3firewall_restricted_ports_22_when_ssh_blocked
-    # RestrictSSH evaluates networkInterface.accessRestriction.l3Firewall.restrictedPorts == "22"
+    # RestrictSSH evaluates isIn ["22"] against the restrictedPorts list
     sg_map = { '0' => HTTPS_ONLY_SG, '1' => HTTPS_ONLY_SG }
     nic = @mapper.map_nics(File.read(fixture('vm_template.xml')), sg_xml_by_id: sg_map)
                  .first['resource']['networkInterface']
-    assert_equal '22', nic.dig('accessRestriction', 'l3Firewall', 'restrictedPorts')
+    assert_includes nic.dig('accessRestriction', 'l3Firewall', 'restrictedPorts'), '22'
     assert_equal true, nic.dig('accessRestriction', 'l3Firewall', 'enabled')
   end
 
@@ -309,7 +309,7 @@ class TestOntologyMapper < Minitest::Test
     sg_map = { '0' => OPEN_SG, '1' => OPEN_SG }
     nic = @mapper.map_nics(File.read(fixture('vm_template.xml')), sg_xml_by_id: sg_map)
                  .first['resource']['networkInterface']
-    assert_equal '', nic.dig('accessRestriction', 'l3Firewall', 'restrictedPorts'),
+    assert_equal [], nic.dig('accessRestriction', 'l3Firewall', 'restrictedPorts'),
                  'open SG must not satisfy RestrictSSH (== "22")'
   end
 
@@ -335,7 +335,7 @@ class TestOntologyMapper < Minitest::Test
     nic = @mapper.map_nics(xml).first['resource']['networkInterface']
     fw = nic.fetch('accessRestriction').fetch('l3Firewall')
     assert_equal false, fw['enabled']
-    assert_equal '', fw['restrictedPorts']
+    assert_equal [], fw['restrictedPorts']
   end
 
   # --- Image mapping ---

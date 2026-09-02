@@ -660,7 +660,7 @@ class OntologyMapper
     # case, not a case that does not apply. Report it as enabled=false so the
     # metric fails it honestly instead of skipping the interface.
     if ids.empty?
-      return { 'l3Firewall' => { 'enabled' => false, 'restrictedPorts' => '' } }
+      return { 'l3Firewall' => { 'enabled' => false, 'restrictedPorts' => [] } }
     end
 
     # The NIC does have security groups but we could not read them: unknown,
@@ -671,11 +671,13 @@ class OntologyMapper
     return nil if parsed.any?(&:nil?) # partial coverage -> unknown, omit
 
     inbound = parsed.flatten
-    ssh_restricted = !port_open_from_internet?(inbound, 22)
+    ports = []
+    ports << '22'   unless port_open_from_internet?(inbound, 22)
+    ports << '3389' unless port_open_from_internet?(inbound, 3389)
     {
       'l3Firewall' => {
         'enabled' => true,
-        'restrictedPorts' => ssh_restricted ? '22' : ''
+        'restrictedPorts' => ports
       }
     }
   end
