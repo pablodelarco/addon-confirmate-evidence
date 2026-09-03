@@ -327,6 +327,42 @@ class TestOntologyMapper < Minitest::Test
     refute nic.key?('accessRestriction')
   end
 
+  BASTION_SSH_SG = '<SECURITY_GROUP><TEMPLATE><RULE><PROTOCOL>TCP</PROTOCOL>' \
+                   '<RANGE>22</RANGE><IP>10.8.0.0</IP><SIZE>256</SIZE>' \
+                   '<RULE_TYPE>INBOUND</RULE_TYPE></RULE></TEMPLATE></SECURITY_GROUP>'
+  VNET_RDP_SG = '<SECURITY_GROUP><TEMPLATE><RULE><PROTOCOL>TCP</PROTOCOL>' \
+                '<RANGE>3389</RANGE><NETWORK_ID>7</NETWORK_ID>' \
+                '<RULE_TYPE>INBOUND</RULE_TYPE></RULE></TEMPLATE></SECURITY_GROUP>'
+
+  def test_nic_allowed_sources_lists_bastion_cidr_for_ssh_rule
+    sg_map = { '0' => BASTION_SSH_SG, '1' => HTTPS_ONLY_SG }
+    fw = @mapper.map_nics(File.read(fixture('vm_template.xml')), sg_xml_by_id: sg_map)
+                .first['resource']['networkInterface'].dig('accessRestriction', 'l3Firewall')
+    assert_equal ['10.8.0.0/256'], fw['allowedSources'],
+                 'only the rule covering a management port feeds allowedSources'
+  end
+
+  def test_nic_allowed_sources_marks_open_rule_as_any
+    sg_map = { '0' => OPEN_SG, '1' => HTTPS_ONLY_SG }
+    fw = @mapper.map_nics(File.read(fixture('vm_template.xml')), sg_xml_by_id: sg_map)
+                .first['resource']['networkInterface'].dig('accessRestriction', 'l3Firewall')
+    assert_equal ['0.0.0.0/0'], fw['allowedSources']
+  end
+
+  def test_nic_allowed_sources_vnet_scoped_rule
+    sg_map = { '0' => VNET_RDP_SG, '1' => HTTPS_ONLY_SG }
+    fw = @mapper.map_nics(File.read(fixture('vm_template.xml')), sg_xml_by_id: sg_map)
+                .first['resource']['networkInterface'].dig('accessRestriction', 'l3Firewall')
+    assert_equal ['vnet:7'], fw['allowedSources']
+  end
+
+  def test_nic_allowed_sources_empty_when_no_rule_touches_management_ports
+    sg_map = { '0' => HTTPS_ONLY_SG, '1' => HTTPS_ONLY_SG }
+    fw = @mapper.map_nics(File.read(fixture('vm_template.xml')), sg_xml_by_id: sg_map)
+                .first['resource']['networkInterface'].dig('accessRestriction', 'l3Firewall')
+    assert_equal [], fw['allowedSources']
+  end
+
   def test_nic_without_security_groups_reports_firewall_disabled
     # No SECURITY_GROUPS at all is the worst case, not "does not apply":
     # emit enabled=false so the metric fails the interface honestly.

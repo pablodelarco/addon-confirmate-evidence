@@ -677,9 +677,35 @@ class OntologyMapper
     {
       'l3Firewall' => {
         'enabled' => true,
-        'restrictedPorts' => ports
+        'restrictedPorts' => ports,
+        'allowedSources' => management_sources(inbound)
       }
     }
+  end
+
+  # Source descriptor of one inbound rule. An OpenNebula rule scopes its source
+  # by IP (+SIZE, a count of addresses) or by NETWORK_ID; a rule with neither
+  # accepts traffic from anywhere.
+  def rule_source(rule)
+    net = text(rule, 'NETWORK_ID').to_s
+    return "vnet:#{net}" unless net.empty?
+
+    ip = text(rule, 'IP').to_s
+    return '0.0.0.0/0' if ip.empty?
+
+    size = text(rule, 'SIZE').to_s
+    size.empty? ? ip : "#{ip}/#{size}"
+  end
+
+  # Sources allowed to reach the management ports (SSH 22, RDP 3389), for the
+  # `allowedSources` ontology field. Scoped to those ports on purpose: the CXB
+  # bastion metrics ask who can reach SSH/RDP, and a single firewall-level list
+  # mixing web traffic sources in would fail compliant NICs.
+  def management_sources(rules)
+    rules.select { |r| %w[ALL TCP].include?(r['protocol']) }
+         .select { |r| range_includes?(r['range'], 22) || range_includes?(r['range'], 3389) }
+         .map { |r| r['source'] }
+         .uniq.sort
   end
 
   # Parses the INBOUND rules from an `onesecgroup show -x` XML string into a list
@@ -700,7 +726,8 @@ class OntologyMapper
       rules << {
         'protocol' => (text(r, 'PROTOCOL') || 'ALL').upcase,
         'range' => text(r, 'RANGE'),
-        'restricted_source' => restricted
+        'restricted_source' => restricted,
+        'source' => rule_source(r)
       }
     end
     rules
