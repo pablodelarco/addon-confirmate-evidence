@@ -374,6 +374,41 @@ class TestOntologyMapper < Minitest::Test
     assert_equal [], fw['restrictedPorts']
   end
 
+  # --- Logging retention from logrotate ---
+
+  def with_logrotate(content)
+    require 'tempfile'
+    Tempfile.create('logrotate') do |f|
+      f.write(content); f.flush
+      cfg = Marshal.load(Marshal.dump(@config))
+      cfg['evidence']['logrotate_path'] = f.path
+      yield OntologyMapper.new(cfg)
+    end
+  end
+
+  def test_os_logging_retention_weekly_rotate_52
+    with_logrotate("/var/log/one/*.log {\n  weekly\n  rotate 52\n}\n") do |m|
+      vm = m.map_vm(File.read(fixture('vm_template.xml')))['resource']['virtualMachine']
+      assert_equal '31449600s', vm.dig('osLogging', 'retentionPeriod')
+      assert_equal '31449600s', vm.dig('bootLogging', 'retentionPeriod')
+    end
+  end
+
+  def test_os_logging_retention_daily_rotate_30
+    with_logrotate("daily\nrotate 30\n") do |m|
+      vm = m.map_vm(File.read(fixture('vm_template.xml')))['resource']['virtualMachine']
+      assert_equal '2592000s', vm.dig('osLogging', 'retentionPeriod')
+    end
+  end
+
+  def test_os_logging_retention_omitted_without_logrotate_file
+    cfg = Marshal.load(Marshal.dump(@config))
+    cfg['evidence']['logrotate_path'] = '/nonexistent/logrotate-test'
+    vm = OntologyMapper.new(cfg).map_vm(File.read(fixture('vm_template.xml')))['resource']['virtualMachine']
+    refute vm['osLogging'].key?('retentionPeriod'), 'unreadable policy must be omitted, not guessed'
+    assert vm['osLogging'].key?('enabled')
+  end
+
   # --- Image mapping ---
 
   def test_map_image_basic

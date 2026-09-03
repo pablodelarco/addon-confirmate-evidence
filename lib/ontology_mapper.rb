@@ -49,6 +49,7 @@ class OntologyMapper
     # Coerce non-String YAML values (numbers, hashes from typos) so the guard
     # below reports the curated message instead of a NoMethodError.
     @target_of_evaluation_id = @target_of_evaluation_id.to_s unless @target_of_evaluation_id.nil?
+    @logrotate_path = config.dig('evidence', 'logrotate_path') || '/etc/logrotate.d/opennebula'
 
     # Fail fast on a missing or malformed ToE: those can never be accepted by
     # any orchestrator. Without this the addon would POST evidence that is
@@ -147,8 +148,8 @@ class OntologyMapper
         'geoLocation' => { 'region' => @default_region },
         'networkInterfaceIds' => nic_ids,
         'blockStorageIds' => disk_ids,
-        'bootLogging' => { 'enabled' => logging_enabled?(vm) },
-        'osLogging' => { 'enabled' => logging_enabled?(vm) },
+        'bootLogging' => logging_feature(vm),
+        'osLogging' => logging_feature(vm),
         'automaticUpdates' => { 'enabled' => false },
         'internetAccessibleEndpoint' => has_public_ip,
         'labels' => labels
@@ -571,6 +572,38 @@ class OntologyMapper
   #
   # @param vm [REXML::Element] VM root element
   # @return [Boolean]
+  # Logging feature hash for boot/os logging. `retentionPeriod` is a Go-style
+  # duration string because the OSLoggingRetention metric parses it with
+  # time.parse_duration_ns; it is omitted when the frontend's logrotate policy
+  # cannot be read, never guessed.
+  def logging_feature(vm)
+    feature = { 'enabled' => logging_enabled?(vm) }
+    retention = log_retention_duration
+    feature['retentionPeriod'] = retention if retention
+    feature
+  end
+
+  # Reads the frontend's logrotate policy for the OpenNebula logs and returns
+  # the retention as protojson Duration seconds ("31449600s" = 52 weekly
+  # rotations); google.protobuf.Duration rejects any other unit. logrotate keeps
+  # `rotate N` archives at `daily`/`weekly`/`monthly` cadence, so retention is
+  # N * cadence. Returns nil when the file is missing or has no rotate count.
+  def log_retention_duration
+    return nil unless File.readable?(@logrotate_path)
+
+    conf = File.read(@logrotate_path)
+    rotate = conf[/^\s*rotate\s+(\d+)/, 1]
+    return nil if rotate.nil?
+
+    days_per_cycle = if conf =~ /^\s*daily\b/ then 1
+                     elsif conf =~ /^\s*monthly\b/ then 30
+                     else 7 # logrotate's default cadence block here is weekly
+                     end
+    "#{rotate.to_i * days_per_cycle * 24 * 3600}s"
+  rescue StandardError
+    nil
+  end
+
   def logging_enabled?(vm)
     # Check for LOG section in USER_TEMPLATE or TEMPLATE
     log_elem = vm.elements['USER_TEMPLATE/LOG'] || vm.elements['TEMPLATE/LOG']
