@@ -11,6 +11,22 @@ HTTPS request path were already correct; these changes are configuration,
 defensive guards, and docs.
 
 ### Added
+- **Mirrored defaults in `labels`.** The Evidence Store speaks protojson, which
+  omits proto3 zero values, so a `false` boolean and an empty list vanish from
+  the JSON the EMERALD UI renders. `atRestEncryption.customerKeyEncryption.enabled
+  = false` reached the auditor as `"atRestEncryption": {"customerKeyEncryption":
+  {}}`, indistinguishable from evidence nobody collected, and that empty side is
+  the only side a metric ever fails on. Every affected value is now written into
+  `labels` as well, where `"false"` is an ordinary string and survives the round
+  trip: `atRestEncryptionEnabled` and `backupEnabled` on BlockStorage,
+  `publicAccess` on ObjectStorage, `enforceMfa`, `activated` and `privileged` on
+  Identity, `automaticUpdatesEnabled` on VirtualMachine, and `l3FirewallEnabled`,
+  `restrictedPorts`, `allowedSources` and `internetAccessibleEndpoint` on
+  NetworkInterface. The ontology fields the metrics read are untouched, so no
+  assessment result changes. A NIC whose security groups could not be read still
+  mirrors nothing, the same integrity rule that already governs
+  `accessRestriction`.
+
 - **`Identity` evidence** from OpenNebula users, so `AdminMFAEnabled` (CIS 4.5)
   can assess whether privileged accounts have a second factor. `privileged`
   comes from membership of the `oneadmin` group, `enforceMfa` from

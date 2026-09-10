@@ -593,6 +593,150 @@ class TestOntologyMapper < Minitest::Test
   end
 
 
+  # --- Mirrored defaults (protojson drops proto3 zero values) ---------------
+  #
+  # These are the values an auditor stops on, because a metric only fails on
+  # the false/empty side and that is exactly the side the wire format erases.
+
+  # Reproduces what protojson does on the way to the UI: a false boolean, an
+  # empty string and an empty list are all omitted from the serialised message.
+  def drop_proto3_defaults(node)
+    case node
+    when Hash
+      node.each_with_object({}) do |(k, v), out|
+        next if v == false || v == '' || v == []
+
+        out[k] = drop_proto3_defaults(v)
+      end
+    when Array then node.map { |v| drop_proto3_defaults(v) }
+    else node
+    end
+  end
+
+  def test_disk_encryption_and_backup_survive_serialisation_as_labels
+    ev = @mapper.map_block_storages(File.read(fixture('vm_no_encryption.xml'))).first
+    storage = ev['resource']['blockStorage']
+
+    assert_equal false, storage.dig('atRestEncryption', 'customerKeyEncryption', 'enabled')
+    assert_equal 'false', storage['labels']['atRestEncryptionEnabled']
+    assert_equal 'false', storage['labels']['backupEnabled']
+
+    on_the_wire = drop_proto3_defaults(storage)
+    assert_equal({}, on_the_wire.dig('atRestEncryption', 'customerKeyEncryption'),
+                 'the ontology field is erased by protojson, which is the defect being covered')
+    assert_equal 'false', on_the_wire['labels']['atRestEncryptionEnabled'],
+                 'the label must still carry the value the auditor needs to read'
+    assert_equal 'false', on_the_wire['labels']['backupEnabled']
+  end
+
+  def test_datastore_public_access_survives_serialisation_as_a_label
+    storage = @mapper.map_datastore(File.read(fixture('datastore_private.xml')))['resource']['objectStorage']
+
+    assert_equal false, storage['publicAccess']
+    assert_equal 'false', drop_proto3_defaults(storage)['labels']['publicAccess']
+  end
+
+  def test_datastore_label_agrees_with_the_field_when_access_is_public
+    storage = @mapper.map_datastore(File.read(fixture('datastore_public.xml')))['resource']['objectStorage']
+
+    assert_equal true, storage['publicAccess']
+    assert_equal 'true', storage['labels']['publicAccess'],
+                 'the mirror must track the field, not hardcode the failing case'
+  end
+
+  def test_identity_mfa_state_survives_serialisation_as_a_label
+    id = @mapper.map_identity(File.read(fixture('user_admin_no_mfa.xml')))['resource']['identity']
+
+    assert_equal false, id['enforceMfa']
+    assert_equal 'false', id['labels']['enforceMfa'],
+                 'AdminMFAEnabled reads enforceMfa; false is the case an auditor asks about'
+    assert_equal 'true', id['labels']['privileged']
+    assert_equal 'true', id['labels']['activated']
+    assert_equal 'false', drop_proto3_defaults(id)['labels']['enforceMfa']
+  end
+
+  def test_vm_automatic_updates_state_survives_serialisation_as_a_label
+    vm = @mapper.map_vm(File.read(fixture('vm_template.xml')))['resource']['virtualMachine']
+
+    assert_equal false, vm.dig('automaticUpdates', 'enabled')
+    assert_equal({}, drop_proto3_defaults(vm)['automaticUpdates'])
+    assert_equal 'false', vm['labels']['automaticUpdatesEnabled']
+  end
+
+  def test_nic_firewall_state_survives_serialisation_as_labels
+    sg_map = { '0' => HTTPS_ONLY_SG, '1' => HTTPS_ONLY_SG }
+    nic = @mapper.map_nics(File.read(fixture('vm_template.xml')), sg_xml_by_id: sg_map)
+                 .first['resource']['networkInterface']
+
+    assert_equal 'true', nic['labels']['l3FirewallEnabled']
+    assert_equal '22,3389', nic['labels']['restrictedPorts']
+    assert_equal 'none', nic['labels']['allowedSources'],
+                 'an empty list reads as "none" so it is a measured result, not a gap'
+    assert_equal 'none', drop_proto3_defaults(nic)['labels']['allowedSources']
+  end
+
+  def test_nic_without_security_groups_mirrors_the_disabled_firewall
+    xml = File.read(fixture('vm_template.xml'))
+            .sub(%r{<SECURITY_GROUPS>[^<]*</SECURITY_GROUPS>}, '')
+    nic = @mapper.map_nics(xml).first['resource']['networkInterface']
+
+    assert_equal 'false', nic['labels']['l3FirewallEnabled']
+    assert_equal 'none', nic['labels']['restrictedPorts']
+  end
+
+  def test_nic_with_unreadable_security_groups_mirrors_nothing
+    # Partial coverage omits accessRestriction; the labels must stay silent too
+    # rather than assert a firewall state nobody measured.
+    nic = @mapper.map_nics(File.read(fixture('vm_template.xml')),
+                           sg_xml_by_id: { '0' => HTTPS_ONLY_SG })
+                 .first['resource']['networkInterface']
+
+    refute nic['labels'].key?('l3FirewallEnabled')
+    refute nic['labels'].key?('restrictedPorts')
+  end
+
+  def test_a_mirror_never_contradicts_the_field_it_mirrors
+    # A label that disagrees with its field would hand the auditor two answers,
+    # which is worse than the empty object this change set out to fix.
+    vm_xml = File.read(fixture('vm_template.xml'))
+    sg_map = { '0' => HTTPS_ONLY_SG, '1' => HTTPS_ONLY_SG }
+    resources = [
+      @mapper.map_vm(vm_xml, sg_xml_by_id: sg_map)['resource']['virtualMachine'],
+      @mapper.map_nics(vm_xml, sg_xml_by_id: sg_map).first['resource']['networkInterface'],
+      @mapper.map_block_storages(vm_xml).first['resource']['blockStorage'],
+      @mapper.map_datastore(File.read(fixture('datastore_private.xml')))['resource']['objectStorage'],
+      @mapper.map_datastore(File.read(fixture('datastore_public.xml')))['resource']['objectStorage'],
+      @mapper.map_identity(File.read(fixture('user_admin_mfa.xml')))['resource']['identity'],
+      @mapper.map_identity(File.read(fixture('user_admin_no_mfa.xml')))['resource']['identity']
+    ]
+
+    checked = 0
+    resources.each do |resource|
+      resource.fetch('labels').each do |key, value|
+        next unless resource.key?(key)
+
+        field = resource[key]
+        next unless [true, false].include?(field)
+
+        assert_equal field.to_s, value,
+                     "label #{key} on #{resource['id']} disagrees with the field it mirrors"
+        checked += 1
+      end
+    end
+    assert_operator checked, :>, 0, 'the invariant must actually be exercised'
+  end
+
+  def test_mirroring_adds_no_ontology_field
+    # The evidence reads better; no metric reads anything new.
+    vm = @mapper.map_vm(File.read(fixture('vm_template.xml')))['resource']['virtualMachine']
+
+    assert_equal %w[blockStorageIds bootLogging creationTime geoLocation id
+                    internetAccessibleEndpoint labels name networkInterfaceIds
+                    osLogging raw automaticUpdates].sort,
+                 vm.keys.sort,
+                 'a new top-level key here means the ontology surface changed, not just the labels'
+  end
+
   private
 
   def fixture(name)

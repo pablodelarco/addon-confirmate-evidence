@@ -23,6 +23,21 @@ require 'json'
 # Uses deterministic UUID v5 generation so that the same resource at the same
 # timestamp always produces the same evidence ID (idempotency).
 class OntologyMapper
+  # Mirrored defaults.
+  #
+  # The Evidence Store speaks protojson, which omits proto3 default values, so
+  # a `false` boolean and an empty list disappear from the JSON the EMERALD UI
+  # renders. `atRestEncryption.customerKeyEncryption.enabled = false` arrives
+  # as `"atRestEncryption": {"customerKeyEncryption": {}}`, and an auditor
+  # reading that panel cannot tell "OpenNebula reported not encrypted" from
+  # "OpenNebula never looked".
+  #
+  # Every such value is therefore also written into `labels`, a
+  # map<string,string> where "false" is an ordinary non-empty string and
+  # survives the round trip. The ontology fields the metrics read are left
+  # exactly as they were, so mirroring changes what the evidence shows and
+  # never what a metric decides.
+  #
   # OpenNebula's built-in administrators group is always GID 0.
   ADMIN_GROUP_ID = '0'
 
@@ -119,7 +134,10 @@ class OntologyMapper
     # for ground-truth audit.
     labels = {
       'diskEncryption' => disk_encrypted?(vm).to_s,  # CIS 4.3 vmdisk_encryption
-      'publicIp' => has_public_ip.to_s               # CIS 4.4 public_ip_adress
+      'publicIp' => has_public_ip.to_s,              # CIS 4.4 public_ip_adress
+      # Mirror of automaticUpdates.enabled, which protojson drops (see the
+      # note on MIRRORED_DEFAULTS above).
+      'automaticUpdatesEnabled' => 'false'
     }
     unless sg_xml_by_id.nil? || sg_xml_by_id.empty?
       # Only emit the ssh/rdp labels when EVERY security group referenced by the
@@ -231,15 +249,21 @@ class OntologyMapper
       labels['network'] = network_name unless network_name.empty?
       labels['securityGroupIds'] = sg_ids unless sg_ids.empty?
 
+      internet_accessible = public_nic?(nic)
+      labels['internetAccessibleEndpoint'] = internet_accessible.to_s
+
       nic_resource = {
         'id' => "one-nic-#{vm_id}-#{nic_id}",
         'name' => "#{network_name}/nic#{nic_id}",
         'labels' => labels,
-        'internetAccessibleEndpoint' => public_nic?(nic)
+        'internetAccessibleEndpoint' => internet_accessible
       }
 
       restriction = nic_access_restriction(sg_ids, sg_xml_by_id)
-      nic_resource['accessRestriction'] = restriction if restriction
+      if restriction
+        nic_resource['accessRestriction'] = restriction
+        mirror_l3_firewall(labels, restriction['l3Firewall'])
+      end
 
       wrap_evidence("nic-#{vm_id}-#{nic_id}", { 'networkInterface' => nic_resource }, xml_str)
     end
@@ -343,16 +367,22 @@ class OntologyMapper
 
     secret = text(user, 'TEMPLATE/FIREEDGE/TWO_FACTOR_AUTH_SECRET').to_s.strip
     enforce_mfa = !secret.empty?
+    activated = text(user, 'ENABLED').to_s.strip == '1'
 
     labels = { 'authDriver' => auth_driver }
     labels['federated'] = (!auth_driver.empty? && auth_driver != 'core').to_s
     labels['groupIds'] = group_ids.join(',') unless group_ids.empty?
+    # Mirrors of activated, privileged and enforceMfa. The last one is what
+    # AdminMFAEnabled reads, and false is exactly the case an auditor asks about.
+    labels['activated'] = activated.to_s
+    labels['privileged'] = privileged.to_s
+    labels['enforceMfa'] = enforce_mfa.to_s
 
     resource = {
       'identity' => {
         'id' => "one-user-#{user_id}",
         'name' => name,
-        'activated' => text(user, 'ENABLED').to_s.strip == '1',
+        'activated' => activated,
         'privileged' => privileged,
         'enforceMfa' => enforce_mfa,
         'labels' => labels
@@ -396,6 +426,10 @@ class OntologyMapper
       labels['encryption'] = raw unless raw.empty?
       image = text(disk, 'IMAGE')
       labels['image'] = image if image
+      # Mirrors of atRestEncryption.customerKeyEncryption.enabled and
+      # backups[0].enabled, both dropped by protojson when false.
+      labels['atRestEncryptionEnabled'] = encrypted.to_s
+      labels['backupEnabled'] = backups_enabled.to_s
 
       resource = {
         'blockStorage' => {
@@ -442,6 +476,8 @@ class OntologyMapper
     end
     ds_type = text(ds, 'TYPE').to_s.strip
     labels['datastoreType'] = ds_type unless ds_type.empty?
+    # Mirror of publicAccess, dropped by protojson on the compliant (false) case.
+    labels['publicAccess'] = public_access.to_s
 
     resource = {
       'objectStorage' => {
@@ -714,6 +750,27 @@ class OntologyMapper
         'allowedSources' => management_sources(inbound)
       }
     }
+  end
+
+  # Mirrors an l3Firewall block into the NIC's labels so the values a firewall
+  # metric reads stay readable in the UI. `enabled` disappears when false, and
+  # `restrictedPorts`/`allowedSources` disappear when empty, which is precisely
+  # the non-compliant case an auditor stops on. An empty list is written as
+  # "none" rather than "" so it reads as a measured result.
+  #
+  # @param labels [Hash] the NIC's label map, modified in place
+  # @param l3 [Hash, nil] the l3Firewall block just built
+  # @return [void]
+  def mirror_l3_firewall(labels, l3)
+    return unless l3
+
+    labels['l3FirewallEnabled'] = l3['enabled'].to_s
+    %w[restrictedPorts allowedSources].each do |key|
+      list = l3[key]
+      next if list.nil?
+
+      labels[key] = list.empty? ? 'none' : list.join(',')
+    end
   end
 
   # Source descriptor of one inbound rule. An OpenNebula rule scopes its source
