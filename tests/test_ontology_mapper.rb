@@ -513,6 +513,32 @@ class TestOntologyMapper < Minitest::Test
     assert ev['resource']['identity'].key?('raw'), 'raw XML must be attached'
   end
 
+  def test_identity_raw_never_carries_password_hash_or_2fa_secret
+    xml = File.read(fixture('user_admin_mfa.xml'))
+    raw = @mapper.map_identity(xml)['resource']['identity']['raw']
+    %w[PASSWORD TOKEN_PASSWORD TWO_FACTOR_AUTH_SECRET].each do |tag|
+      assert_includes raw, "<#{tag}>[REDACTED]</#{tag}>", "#{tag} must be redacted"
+      original = xml[%r{<#{tag}><!\[CDATA\[([^\]]+)\]\]></#{tag}>}, 1]
+      refute_includes raw, original, "#{tag} value leaked" if original
+    end
+    assert_includes raw, '<NAME>', 'non-secret fields stay in the raw XML'
+  end
+
+  def test_nested_login_tokens_and_attributes_are_redacted
+    raw = @mapper.send(:redact_secrets,
+                       '<USER><LOGIN_TOKEN><TOKEN>abc123</TOKEN></LOGIN_TOKEN>' \
+                       '<PASSWORD><PASSWORD>inner</PASSWORD></PASSWORD>' \
+                       '<CONTEXT secret="attr1"><Password>ctx</Password></CONTEXT><NAME>alice</NAME></USER>')
+    %w[abc123 inner attr1 ctx].each { |v| refute_includes raw, v }
+    assert_includes raw, '<NAME>alice</NAME>'
+  end
+
+  def test_unparseable_xml_is_never_attached
+    raw = @mapper.send(:redact_secrets, '<USER><PASSWORD>x</USER>')
+    refute_includes raw, 'x</'
+    assert_match(/omitted/, raw)
+  end
+
   # --- BlockStorage (VirtualMachineDiskEncryptionEnabled, CIS 4.3) ---
 
   def test_block_storage_ids_match_the_ones_the_vm_advertises

@@ -528,13 +528,39 @@ class OntologyMapper
   # @param resource [Hash] ontology resource object keyed by lowerCamel type
   # @param raw_xml [String, nil] original XML payload, attached to the resource
   # @return [Hash] complete Evidence payload (to be POSTed as the HTTP body)
+  # Element and attribute names whose value must never leave the front-end,
+  # such as the password hash, TOKEN_PASSWORD, the 2FA secret, login tokens
+  # and any PASSWORD in a VM CONTEXT.
+  SECRET_NAME = /PASSWORD|PASSWD|SECRET|TOKEN/i.freeze
+
+  # Walks the parsed XML, so nesting, attributes and CDATA cannot hide a
+  # secret. If the XML does not parse, no raw XML is attached at all.
+  def redact_secrets(xml)
+    doc = REXML::Document.new(xml)
+    doc.each_recursive do |el|
+      el.attributes.each_attribute do |attr|
+        attr.element.attributes[attr.expanded_name] = '[REDACTED]' if attr.name =~ SECRET_NAME
+      end
+      next unless el.name =~ SECRET_NAME
+
+      el.children.to_a.each(&:remove)
+      el.add_text('[REDACTED]')
+    end
+    out = +''
+    doc.write(out)
+    out
+  rescue REXML::ParseException
+    '[raw XML omitted because it could not be parsed for redaction]'
+  end
+
   def wrap_evidence(resource_key, resource, raw_xml)
     timestamp = Time.now.utc.strftime('%Y-%m-%dT%H:%M:%SZ')
     evidence_id = generate_uuid(resource_key, timestamp)
 
     if raw_xml
       type_key = resource.keys.first
-      truncated = raw_xml.length > 10_000 ? raw_xml[0..9999] : raw_xml
+      clean = redact_secrets(raw_xml)
+      truncated = clean.length > 10_000 ? clean[0..9999] : clean
       resource[type_key]['raw'] = truncated
     end
 
