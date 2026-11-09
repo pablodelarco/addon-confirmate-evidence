@@ -140,6 +140,17 @@ defensive guards, and docs.
   its rule shape did not match the current `NetworkSecurityGroup` schema) and
   the unused `nic_template.xml` fixture.
 
+### Cleanup
+- `lib/hook_common.rb` holds the steps every hook shares: read the payload,
+  load the configuration, create the logger, catch every error and exit 0.
+  Each script in `hooks/` keeps only the mapping of its own resource.
+- `uninstall.sh` reads the hook and script names from `templates/` and
+  `hooks/`. It used to leave 5 of the 12 hooks and 2 of the 6 scripts
+  installed. `install.sh` and `uninstall.sh` are executable in git.
+- Test fixtures use placeholder names, addresses, keys and hashes.
+- Removed the unused `ConfirmateClient#create_logger` and unused requires.
+- `examples/` regenerated from the current mapper output.
+
 ## [0.2.0] - 2026-05-21
 
 ### Changed — Clouditor → Confirmate migration

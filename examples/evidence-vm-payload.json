@@ -1,7 +1,7 @@
 {
-  "id": "f3ad4c68-47c9-5133-9345-3cb58abba9d9",
-  "timestamp": "2026-06-12T11:06:06Z",
-  "targetOfEvaluationId": "11111111-2222-3333-4444-555555555555",
+  "id": "5a258f81-be0d-57b2-a16a-ead7b7098ea2",
+  "timestamp": "2026-11-09T15:55:09Z",
+  "targetOfEvaluationId": "11111111-2222-4333-8444-555555555555",
   "toolId": "opennebula-addon-confirmate-evidence",
   "resource": {
     "virtualMachine": {
@@ -32,6 +32,7 @@
       "labels": {
         "diskEncryption": "false",
         "publicIp": "true",
+        "automaticUpdatesEnabled": "false",
         "sshRestricted": "true",
         "rdpRestricted": "true"
       },

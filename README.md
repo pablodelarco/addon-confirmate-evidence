@@ -19,9 +19,10 @@ EUCS and CIS metrics, and the results appear in the EMERALD UI.
 │  │ VMs, NICs, images │    │ addon-confirmate-evidence (this repo) │  │
 │  │ networks, users,  │    │                                       │  │
 │  │ datastores        │    │  hooks/   one script per resource     │  │
-│  │                   │──> │  lib/     OntologyMapper              │  │
-│  │ a change fires an │    │           (redacts secrets)           │  │
-│  │ OpenNebula hook   │    │           ConfirmateClient            │  │
+│  │                   │──> │  lib/     HookCommon (shared steps)   │  │
+│  │ a change fires an │    │           OntologyMapper              │  │
+│  │ OpenNebula hook   │    │           (redacts secrets)           │  │
+│  │                   │    │           ConfirmateClient            │  │
 │  │                   │    │           TokenManager (OAuth2)       │  │
 │  └───────────────────┘    └───────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────┘
