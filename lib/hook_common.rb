@@ -10,25 +10,10 @@
 # =============================================================================
 
 ONE_LOCATION = ENV['ONE_LOCATION'] unless defined?(ONE_LOCATION)
+ETC_LOCATION = ONE_LOCATION ? ONE_LOCATION + '/etc' : '/etc/one'
 
-if !ONE_LOCATION
-  RUBY_LIB_LOCATION = '/usr/lib/one/ruby'
-  GEMS_LOCATION     = '/usr/share/one/gems'
-  ETC_LOCATION      = '/etc/one'
-else
-  RUBY_LIB_LOCATION = ONE_LOCATION + '/lib/ruby'
-  GEMS_LOCATION     = ONE_LOCATION + '/share/gems'
-  ETC_LOCATION      = ONE_LOCATION + '/etc'
-end
-
-if File.directory?(GEMS_LOCATION)
-  real_gems_path = File.realpath(GEMS_LOCATION)
-  ENV['GEM_PATH'] = real_gems_path if !ENV['GEM_PATH']&.include?(real_gems_path)
-  Gem.use_paths(real_gems_path)
-end
-
-$LOAD_PATH << RUBY_LIB_LOCATION
-
+# Ruby standard library only, so the hooks need no OpenNebula gems or Ruby
+# libraries on the load path.
 require 'base64'
 require 'yaml'
 require 'logger'
