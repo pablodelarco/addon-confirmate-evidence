@@ -47,14 +47,13 @@ fi
 echo "[1/5] Installing library files..."
 mkdir -p "$LIB_DIR"
 cp "$SCRIPT_DIR"/lib/*.rb "$LIB_DIR/"
-echo "  Installed: token_manager.rb, ontology_mapper.rb, confirmate_client.rb"
+echo "  Installed: $(cd "$SCRIPT_DIR/lib" && echo *.rb)"
 
 # Copy hook scripts
 echo "[2/5] Installing hook scripts..."
 cp "$SCRIPT_DIR"/hooks/*.rb "$HOOKS_DIR/"
 chmod 750 "$HOOKS_DIR"/confirmate_*.rb
-echo "  Installed: confirmate_vm_evidence.rb, confirmate_nic_evidence.rb,"
-echo "             confirmate_image_evidence.rb, confirmate_net_evidence.rb"
+echo "  Installed: $(cd "$SCRIPT_DIR/hooks" && echo *.rb)"
 
 # Set ownership
 echo "[3/5] Setting file ownership..."

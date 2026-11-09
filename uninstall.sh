@@ -10,6 +10,8 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 ONE_LOCATION="${ONE_LOCATION:-}"
 if [ -z "$ONE_LOCATION" ]; then
     HOOKS_DIR="/var/lib/one/remotes/hooks"
@@ -29,16 +31,8 @@ echo ""
 # Remove registered hooks
 echo "[1/3] Removing registered hooks..."
 if command -v onehook &>/dev/null; then
-    HOOK_NAMES=(
-        "hook-confirmate-vm-running"
-        "hook-confirmate-vm-poweroff"
-        "hook-confirmate-vm-done"
-        "hook-confirmate-nic-attach"
-        "hook-confirmate-nic-detach"
-        "hook-confirmate-image-ready"
-        "hook-confirmate-net-create"
-    )
-    for name in "${HOOK_NAMES[@]}"; do
+    for tmpl in "$SCRIPT_DIR"/templates/*.tmpl; do
+        name=$(awk -F'"' '/^NAME/ {print $2; exit}' "$tmpl")
         # Exact NAME match (column 2), one ID per line; never pass a multi-line
         # blob to `onehook delete`.
         hook_ids=$(onehook list --no-header 2>/dev/null | awk -v n="$name" '$2 == n {print $1}')
@@ -57,7 +51,8 @@ fi
 
 # Remove hook scripts
 echo "[2/3] Removing hook scripts and libraries..."
-for script in confirmate_vm_evidence.rb confirmate_nic_evidence.rb confirmate_image_evidence.rb confirmate_net_evidence.rb; do
+for script in "$SCRIPT_DIR"/hooks/*.rb; do
+    script=$(basename "$script")
     if [ -f "$HOOKS_DIR/$script" ]; then
         rm -f "$HOOKS_DIR/$script"
         echo "  Removed: $HOOKS_DIR/$script"
