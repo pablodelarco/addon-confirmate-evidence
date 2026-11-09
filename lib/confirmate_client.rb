@@ -11,8 +11,6 @@ require 'net/http'
 require 'openssl'
 require 'uri'
 require 'json'
-require 'logger'
-require 'yaml'
 require 'digest/sha1'
 
 $LOAD_PATH.unshift(File.dirname(__FILE__)) unless $LOAD_PATH.include?(File.dirname(__FILE__))
@@ -33,10 +31,10 @@ class ConfirmateClient
   EVIDENCE_PATH = '/v1/evidence_store/evidence'
 
   # @param config [Hash] parsed YAML configuration
-  # @param logger [Logger, nil] optional logger (creates default if nil)
-  def initialize(config, logger = nil)
+  # @param logger [Logger]
+  def initialize(config, logger)
     @config = config
-    @logger = logger || create_logger(config)
+    @logger = logger
     # Strip trailing slashes so "https://host/" doesn't yield "//v1/..." paths
     @endpoint = (config.dig('confirmate', 'endpoint') || 'http://localhost:8080').sub(%r{/+\z}, '')
     @ca_file = config.dig('confirmate', 'tls', 'ca_file')
@@ -192,38 +190,5 @@ class ConfirmateClient
     store.set_default_paths   # keep the host's default trust roots
     store.add_file(@ca_file)  # plus the configured CA
     http.cert_store = store
-  end
-
-  # Creates a logger instance from configuration.
-  #
-  # @param config [Hash] parsed YAML configuration
-  # @return [Logger]
-  def create_logger(config)
-    log_file = config.dig('logging', 'file') || $stderr
-    log_level = config.dig('logging', 'level') || 'info'
-
-    logger = if log_file.is_a?(String)
-               begin
-                 Logger.new(log_file, 10, 1_048_576) # 10 rotated files, 1MB each
-               rescue StandardError
-                 Logger.new($stderr)
-               end
-             else
-               Logger.new(log_file)
-             end
-
-    logger.level = case log_level.downcase
-                   when 'debug' then Logger::DEBUG
-                   when 'info'  then Logger::INFO
-                   when 'warn'  then Logger::WARN
-                   when 'error' then Logger::ERROR
-                   else Logger::INFO
-                   end
-
-    logger.formatter = proc do |severity, datetime, _progname, msg|
-      "[#{datetime.strftime('%Y-%m-%d %H:%M:%S')}] #{severity} confirmate-evidence: #{msg}\n"
-    end
-
-    logger
   end
 end

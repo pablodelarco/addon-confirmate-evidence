@@ -136,7 +136,7 @@ class OntologyMapper
       'diskEncryption' => disk_encrypted?(vm).to_s,  # CIS 4.3 vmdisk_encryption
       'publicIp' => has_public_ip.to_s,              # CIS 4.4 public_ip_adress
       # Mirror of automaticUpdates.enabled, which protojson drops (see the
-      # note on MIRRORED_DEFAULTS above).
+      # "Mirrored defaults" note at the top of the class).
       'automaticUpdatesEnabled' => 'false'
     }
     unless sg_xml_by_id.nil? || sg_xml_by_id.empty?

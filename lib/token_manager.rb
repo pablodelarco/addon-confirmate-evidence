@@ -14,7 +14,6 @@ require 'net/http'
 require 'openssl'
 require 'uri'
 require 'json'
-require 'base64'
 require 'monitor'
 
 # Manages bearer tokens for authenticating with the Confirmate API.
@@ -42,7 +41,6 @@ class TokenManager
   # @param logger [Logger] logger instance
   def initialize(config, logger)
     super() # Initialize MonitorMixin
-    @config = config
     @logger = logger
     @token = nil
     @token_expiry = nil
