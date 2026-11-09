@@ -127,7 +127,7 @@ change state.
 | OpenNebula event | Evidence sent |
 |---|---|
 | VM enters RUNNING or POWEROFF, or is terminated | VirtualMachine, one NetworkInterface per NIC, one BlockStorage per disk |
-| NIC attached or detached | The VM is sent again when it returns to RUNNING |
+| NIC attached or detached | One NetworkInterface per NIC, and the VirtualMachine again |
 | Image becomes READY | VMImage |
 | Virtual network created | VirtualNetwork |
 | User created or updated | Identity |

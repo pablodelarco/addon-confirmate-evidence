@@ -34,13 +34,6 @@ curl -sS -o /dev/null -w "%{http_code}\n" https://<evidence-store-host>/v1/auth/
 Anything other than `200` is a network, DNS or firewall problem. If it is
 `200`, set `logging.level: debug` to see the full HTTP response.
 
-## NIC attach and detach hooks do not run
-
-On OpenNebula 7.2 the hook validator and the API use different method names
-for these calls, so the NIC hooks never fire. No evidence is lost, because the
-VM returns to RUNNING after the change and the VM hook sends the VM and its
-NICs again.
-
 ## Confirmate log shows `Stream restarted ... err="EOF"`
 
 Long-running Confirmate processes can lose their internal streams. Evidence is
